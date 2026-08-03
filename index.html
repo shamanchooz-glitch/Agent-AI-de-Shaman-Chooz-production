@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Shaman — Assistant</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: linear-gradient(180deg, #16233A 0%, #101A2C 100%);
+    font-family: -apple-system, system-ui, sans-serif;
+  }
+  .wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #F1EAD9;
+    text-align: center;
+    padding: 24px;
+  }
+  .logo {
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #E0A458, #B97F2E);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 28px;
+    color: #16233A;
+    margin-bottom: 16px;
+  }
+  .hint {
+    color: #93A1B4;
+    font-size: 14px;
+    margin-top: 10px;
+    max-width: 260px;
+  }
+  #voice-toggle {
+    margin-top: 20px;
+    background: #E0A458;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 20px;
+    color: #16233A;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #voice-toggle.off {
+    background: #223349;
+    color: #93A1B4;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+  <div class="logo">S</div>
+  <div style="font-size:20px; font-weight:700;">Shaman</div>
+  <div class="hint">Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite pour discuter.</div>
+  <button id="voice-toggle">🔊 Voix activée</button>
+</div>
+
+<!-- Widget de chat Botpress -->
+<script src="https://cdn.botpress.cloud/webchat/v3/inject.js"></script>
+<script src="https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js" defer></script>
+
+<script>
+  let voiceOn = true;
+  const toggleBtn = document.getElementById('voice-toggle');
+
+  toggleBtn.addEventListener('click', () => {
+    voiceOn = !voiceOn;
+    if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
+    toggleBtn.textContent = voiceOn ? '🔊 Voix activée' : '🔇 Voix coupée';
+    toggleBtn.classList.toggle('off', !voiceOn);
+  });
+
+  function speak(text) {
+    if (!voiceOn || !window.speechSynthesis || !text) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'fr-FR';
+    utter.rate = 1.02;
+    utter.pitch = 0.95;
+    window.speechSynthesis.speak(utter);
+  }
+
+  function extractBotText(message) {
+    return (
+      message?.payload?.text ||
+      message?.text ||
+      (typeof message?.payload === 'string' ? message.payload : '') ||
+      ''
+    );
+  }
+
+  function isBotMessage(message) {
+    return (
+      message?.direction === 'incoming' ||
+      message?.authorRole === 'bot' ||
+      message?.from === 'bot' ||
+      message?.source === 'bot'
+    );
+  }
+
+  // On écoute les nouveaux messages du bot pour les lire à voix haute.
+  // Botpress a changé son API plusieurs fois selon les versions, donc on
+  // couvre les différentes formes possibles pour maximiser les chances
+  // que ça marche du premier coup, sans avoir à ajuster après coup.
+  function attachListener() {
+    let attached = false;
+
+    // Nouvelle API (webchat v2/v3) : window.botpress.on('message', ...)
+    if (window.botpress && typeof window.botpress.on === 'function') {
+      window.botpress.on('message', (message) => {
+        try {
+          if (isBotMessage(message)) {
+            const text = extractBotText(message);
+            if (text) speak(text);
+          }
+        } catch (e) {
+          console.error('Erreur lecture message (API v2/v3):', e);
+        }
+      });
+      attached = true;
+    }
+
+    // Ancienne API (webchat v0/v1) : window.botpressWebChat.onEvent(...)
+    if (window.botpressWebChat && typeof window.botpressWebChat.onEvent === 'function') {
+      window.botpressWebChat.onEvent(
+        (event) => {
+          try {
+            const text = extractBotText(event);
+            if (text) speak(text);
+          } catch (e) {
+            console.error('Erreur lecture message (API v0/v1):', e);
+          }
+        },
+        ['MESSAGE.RECEIVED']
+      );
+      attached = true;
+    }
+
+    if (!attached) {
+      // Le widget n'est pas encore chargé, on réessaie un peu plus tard
+      setTimeout(attachListener, 500);
+    }
+  }
+  attachListener();
+</script>
+
+</body>
+</html>

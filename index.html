@@ -315,34 +315,96 @@
   window.__bpInjectFailed = false;
   window.__bpConfigFailed = false;
 
-  // Chargeur résilient : si la version "v3" de la librairie Botpress ne
-  // répond pas (alias cassé, cache CDN, etc.), on essaie automatiquement
-  // d'autres versions connues avant de conclure à un vrai blocage réseau.
-  // Une fois la librairie chargée, on charge le fichier de config propre
-  // à CE bot (celui-ci n'a pas d'équivalent de secours, il est unique).
-  const BP_INJECT_VERSIONS = ['v3', 'v3.2', 'v2.3', 'v2.2', 'v1', 'v0'];
+  // Chargeur résilient : si une version de la librairie Botpress ne répond
+  // pas (alias cassé, cache CDN, bloqueur de pub qui renvoie une réponse
+  // vide au lieu d'une vraie erreur, coupure réseau passagère...), on
+  // réessaie automatiquement plusieurs fois avant de conclure à un vrai
+  // blocage. Une fois la librairie confirmée chargée, on charge le fichier
+  // de config propre à CE bot.
+  // IMPORTANT : ne mettre ici QUE des versions qui existent vraiment sur
+  // cdn.botpress.cloud. Des alias inventés comme "v4" ou "v3" n'existent
+  // pas et renvoient une erreur XML "NoSuchKey" (c'est exactement ce que
+  // montrait la capture d'écran) : ça ne casse rien grâce au onerror
+  // ci-dessous, mais ça fait perdre du temps et sème le doute. La version
+  // v5.0 est celle donnée par Botpress Cloud pour CE bot précis (à garder
+  // en premier) ; les suivantes sont d'anciennes versions publiques encore
+  // en ligne, utilisées seulement si v5.0 est temporairement injoignable.
+  const BP_INJECT_VERSIONS = ['v5.0', 'v2.3', 'v1', 'v0'];
   const BP_CONFIG_URL = 'https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js';
+  const BP_MAX_ROUNDS = 4; // 1 essai initial + 3 tentatives automatiques supplémentaires
+  const BP_ROUND_DELAY_MS = 6000; // pause entre deux séries de tentatives
 
-  function loadBotpress(versionIndex) {
-    versionIndex = versionIndex || 0;
+  let bpRound = 0;
+  let bpConfigLoaded = false;
+
+  function isBotpressLibraryPresent() {
+    // Certains bloqueurs de pub laissent le <script> "réussir" (onload) tout
+    // en servant un fichier vide : on vérifie donc que la librairie a bien
+    // posé un objet global exploitable, pas seulement que la requête a fini.
+    return !!(
+      (window.botpress && typeof window.botpress.init === 'function') ||
+      (window.botpressWebChat && typeof window.botpressWebChat.init === 'function')
+    );
+  }
+
+  function loadBotpressConfig() {
+    if (bpConfigLoaded) return;
+    bpConfigLoaded = true;
+    const configScript = document.createElement('script');
+    configScript.src = BP_CONFIG_URL;
+    configScript.defer = true;
+    configScript.onerror = () => { window.__bpConfigFailed = true; };
+    configScript.onload = () => { attachListener(0); };
+    document.body.appendChild(configScript);
+  }
+
+  function tryInjectVersion(versionIndex) {
     if (versionIndex >= BP_INJECT_VERSIONS.length) {
-      window.__bpInjectFailed = true;
+      // Toutes les versions ont échoué pour cette série : on retente une
+      // série complète un peu plus tard si on n'a pas atteint le maximum.
+      bpRound++;
+      if (bpRound < BP_MAX_ROUNDS && navigator.onLine) {
+        setTimeout(() => tryInjectVersion(0), BP_ROUND_DELAY_MS);
+      } else {
+        window.__bpInjectFailed = true;
+      }
       return;
     }
     const version = BP_INJECT_VERSIONS[versionIndex];
     const script = document.createElement('script');
     script.src = `https://cdn.botpress.cloud/webchat/${version}/inject.js`;
     script.onload = () => {
-      const configScript = document.createElement('script');
-      configScript.src = BP_CONFIG_URL;
-      configScript.defer = true;
-      configScript.onerror = () => { window.__bpConfigFailed = true; };
-      document.body.appendChild(configScript);
+      // On laisse une courte fenêtre au script pour s'exécuter avant de
+      // vérifier qu'il a réellement posé son objet global.
+      setTimeout(() => {
+        if (isBotpressLibraryPresent()) {
+          window.__bpInjectFailed = false;
+          loadBotpressConfig();
+        } else {
+          tryInjectVersion(versionIndex + 1);
+        }
+      }, 300);
     };
-    script.onerror = () => loadBotpress(versionIndex + 1);
+    script.onerror = () => tryInjectVersion(versionIndex + 1);
     document.body.appendChild(script);
   }
+
+  function loadBotpress() {
+    bpRound = 0;
+    window.__bpInjectFailed = false;
+    window.__bpConfigFailed = false;
+    bpConfigLoaded = false;
+    tryInjectVersion(0);
+  }
   loadBotpress();
+
+  // Bouton "Réessayer" dans le panneau de diagnostic : relance tout le
+  // processus de chargement sans obliger la personne à recharger la page.
+  function retryBotpress() {
+    document.getElementById('diag').classList.remove('show');
+    loadBotpress();
+    attachListener();
+  }
 </script>
 
 <script>
@@ -435,9 +497,11 @@
     }
 
     if (!attached) {
-      if (attempt < 50 && navigator.onLine) {
+      if (attempt < 90 && navigator.onLine) {
         // Le widget n'est pas encore chargé, on réessaie un peu plus tard
-        // (jusqu'à ~25 secondes avant d'afficher un diagnostic).
+        // (jusqu'à ~45 secondes, pour laisser le temps aux tentatives
+        // automatiques de chargement de Botpress d'aboutir avant d'afficher
+        // un diagnostic).
         setTimeout(() => attachListener(attempt + 1), 500);
       } else if (navigator.onLine) {
         showDiag();
@@ -452,31 +516,35 @@
     const diag = document.getElementById('diag');
     let html = '';
 
+    const retryBtn = `<br><br><button id="diag-retry" style="background:#E0A458;border:none;border-radius:8px;padding:8px 16px;color:#16233A;font-weight:700;font-size:13px;cursor:pointer;">🔄 Réessayer maintenant</button>`;
+
     if (window.__bpInjectFailed) {
       html = `
-        ⚠️ Le script principal de Botpress (cdn.botpress.cloud) n'a pas pu être chargé, même après plusieurs versions testées.
-        <br><br>Pour savoir si c'est ton réseau ou un vrai blocage plus large : copie ce lien et ouvre-le dans un nouvel onglet Chrome :
-        <br>https://cdn.botpress.cloud/webchat/v3/inject.js
-        <br><br>• Si une page de texte/code s'affiche → le domaine est accessible, réessaie de recharger cette page (parfois un simple rechargement suffit).
-        <br>• Si Chrome affiche une erreur ("Ce site est inaccessible", DNS, etc.) → le domaine cdn.botpress.cloud est bloqué par ton opérateur/pays. Essaie avec un VPN ou une autre carte SIM/opérateur.
+        ⚠️ Le script principal de Botpress (cdn.botpress.cloud) n'a pas pu être chargé, même après plusieurs tentatives et plusieurs versions testées.
+        <br><br>Causes les plus fréquentes : réseau Wi-Fi/mobile qui bloque ce domaine, bloqueur de pub actif, ou réseau d'entreprise/école filtré.
+        <br><br>➡️ Essaie avec une autre connexion (data mobile), désactive un éventuel bloqueur de pub, puis appuie sur Réessayer.
+        ${retryBtn}
       `;
     } else if (window.__bpConfigFailed) {
       html = `
         ⚠️ Le fichier de configuration de TON bot (files.bpcontent.cloud/...) n'a pas pu être chargé.
         <br><br>Cause la plus probable : le lien du script a changé ou expiré côté Botpress Cloud.
         <br><br>➡️ Sur Botpress Cloud, ouvre ton bot → onglet "Share"/"Intégrer" → copie le NOUVEAU code d'intégration (les 2 lignes &lt;script&gt;) → remplace-les dans index.html, puis republie la page.
+        ${retryBtn}
       `;
     } else {
       html = `
-        ⚠️ Les scripts Botpress se sont chargés, mais le chat ne s'est pas initialisé après 25 secondes.
+        ⚠️ Les scripts Botpress se sont chargés, mais le chat ne s'est pas initialisé après 45 secondes.
         <br><br>Cause la plus probable : le nom de domaine de cette page n'est pas autorisé dans les réglages du bot, ou le bot n'est pas encore publié.
         <br><br>➡️ Sur Botpress Cloud : 1) vérifie que le bot est bien "Publié" (bouton en haut à droite de l'éditeur), 2) va dans "Share"/"Domaines autorisés" et ajoute exactement l'adresse de cette page (${window.location.origin}).
-        <br><br>Recharge la page une fois vérifié.
+        ${retryBtn}
       `;
     }
 
     diag.innerHTML = html;
     diag.classList.add('show');
+    const retryEl = document.getElementById('diag-retry');
+    if (retryEl) retryEl.addEventListener('click', retryBotpress);
   }
 
   // Bouton de secours pour ouvrir le chat manuellement, au cas où la bulle

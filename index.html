@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Shaman — Assistant</title>
+<link rel="manifest" href="./manifest.json" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<meta name="theme-color" content="#16233A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Shaman" />
+<meta name="mobile-web-app-capable" content="yes" />
 <style>
   html, body {
     margin: 0;
@@ -23,17 +31,49 @@
     padding: 24px;
   }
   .logo {
-    width: 64px;
-    height: 64px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #E0A458, #B97F2E);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 28px;
-    color: #16233A;
+    width: 88px;
+    height: 88px;
+    border-radius: 22px;
+    overflow: hidden;
     margin-bottom: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .share-box {
+    margin-top: 28px;
+    background: #1B2A41;
+    border: 1px solid #2C4059;
+    border-radius: 16px;
+    padding: 18px;
+    max-width: 280px;
+  }
+  .share-box img {
+    width: 150px;
+    height: 150px;
+    border-radius: 10px;
+    background: #fff;
+    padding: 6px;
+  }
+  .share-link {
+    font-size: 12px;
+    color: #93A1B4;
+    word-break: break-all;
+    margin-top: 10px;
+  }
+  #copy-link {
+    margin-top: 10px;
+    background: #223349;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: #F1EAD9;
+    font-size: 13px;
+    cursor: pointer;
   }
   .hint {
     color: #93A1B4;
@@ -61,10 +101,17 @@
 <body>
 
 <div class="wrapper">
-  <div class="logo">S</div>
+  <div class="logo"><img src="./icon-512.png" alt="Shaman" /></div>
   <div style="font-size:20px; font-weight:700;">Shaman</div>
   <div class="hint">Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite pour discuter.</div>
   <button id="voice-toggle">🔊 Voix activée</button>
+
+  <div class="share-box">
+    <div style="font-size:13px; color:#93A1B4; margin-bottom:10px;">Partage ce lien ou ce QR code à ta famille et tes amis :</div>
+    <img id="qr-code" src="" alt="QR code" />
+    <div class="share-link" id="share-link"></div>
+    <button id="copy-link">📋 Copier le lien</button>
+  </div>
 </div>
 
 <!-- Widget de chat Botpress -->
@@ -153,7 +200,31 @@
       setTimeout(attachListener, 500);
     }
   }
+  // Génère le QR code et affiche le lien à partager, à partir de l'adresse réelle de la page
+  const currentUrl = window.location.href.split('?')[0].split('#')[0];
+  document.getElementById('qr-code').src =
+    'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(currentUrl);
+  document.getElementById('share-link').textContent = currentUrl;
+
+  document.getElementById('copy-link').addEventListener('click', () => {
+    navigator.clipboard.writeText(currentUrl).then(() => {
+      const btn = document.getElementById('copy-link');
+      const original = btn.textContent;
+      btn.textContent = '✅ Lien copié !';
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    });
+  });
+
   attachListener();
+
+  // Enregistrement du service worker (nécessaire pour l'installation PWA)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch((e) => {
+        console.error('Erreur service worker:', e);
+      });
+    });
+  }
 </script>
 
 </body>

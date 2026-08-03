@@ -282,13 +282,7 @@
 
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
-  <div id="diag">
-    ⚠️ Le chat ne s'est pas encore chargé. Vérifie que :
-    <br>1) ton téléphone/ordinateur est bien connecté à internet,
-    <br>2) le bot est publié côté Botpress,
-    <br>3) le nom de domaine de cette page est autorisé dans les réglages "Share" du bot sur Botpress Cloud.
-    <br>Recharge la page une fois vérifié. En attendant, le bouton "Discuter hors ligne" reste disponible.
-  </div>
+  <div id="diag"></div>
 
   <div class="share-box">
     <div style="font-size:13px; color:#93A1B4; margin-bottom:10px;">Partage ce lien ou ce QR code à ta famille et tes amis :</div>
@@ -315,8 +309,14 @@
 </div>
 
 <!-- Widget de chat Botpress -->
-<script src="https://cdn.botpress.cloud/webchat/v3/inject.js"></script>
-<script src="https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js" defer></script>
+<script>
+  // On garde une trace précise de ce qui échoue exactement, pour pouvoir
+  // afficher un diagnostic ciblé plutôt qu'un message générique.
+  window.__bpInjectFailed = false;
+  window.__bpConfigFailed = false;
+</script>
+<script src="https://cdn.botpress.cloud/webchat/v3/inject.js" onerror="window.__bpInjectFailed = true;"></script>
+<script src="https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js" defer onerror="window.__bpConfigFailed = true;"></script>
 
 <script>
   let voiceOn = true;
@@ -408,14 +408,46 @@
     }
 
     if (!attached) {
-      if (attempt < 40 && navigator.onLine) {
+      if (attempt < 50 && navigator.onLine) {
         // Le widget n'est pas encore chargé, on réessaie un peu plus tard
-        // (jusqu'à ~20 secondes avant d'afficher un diagnostic).
+        // (jusqu'à ~25 secondes avant d'afficher un diagnostic).
         setTimeout(() => attachListener(attempt + 1), 500);
       } else if (navigator.onLine) {
-        document.getElementById('diag').classList.add('show');
+        showDiag();
       }
     }
+  }
+
+  // Construit un message de diagnostic PRÉCIS selon ce qui a réellement
+  // échoué, au lieu d'un message générique qui liste toutes les causes
+  // possibles sans dire laquelle s'applique.
+  function showDiag() {
+    const diag = document.getElementById('diag');
+    let html = '';
+
+    if (window.__bpInjectFailed) {
+      html = `
+        ⚠️ Le script principal de Botpress (cdn.botpress.cloud) n'a pas pu être chargé.
+        <br><br>Cause la plus probable : ta connexion bloque ce domaine (réseau d'entreprise/école, bloqueur de pub, ou coupure réseau).
+        <br><br>➡️ Essaie avec une autre connexion (data mobile), ou désactive un éventuel bloqueur de pub, puis recharge la page.
+      `;
+    } else if (window.__bpConfigFailed) {
+      html = `
+        ⚠️ Le fichier de configuration de TON bot (files.bpcontent.cloud/...) n'a pas pu être chargé.
+        <br><br>Cause la plus probable : le lien du script a changé ou expiré côté Botpress Cloud.
+        <br><br>➡️ Sur Botpress Cloud, ouvre ton bot → onglet "Share"/"Intégrer" → copie le NOUVEAU code d'intégration (les 2 lignes &lt;script&gt;) → remplace-les dans index.html, puis republie la page.
+      `;
+    } else {
+      html = `
+        ⚠️ Les scripts Botpress se sont chargés, mais le chat ne s'est pas initialisé après 25 secondes.
+        <br><br>Cause la plus probable : le nom de domaine de cette page n'est pas autorisé dans les réglages du bot, ou le bot n'est pas encore publié.
+        <br><br>➡️ Sur Botpress Cloud : 1) vérifie que le bot est bien "Publié" (bouton en haut à droite de l'éditeur), 2) va dans "Share"/"Domaines autorisés" et ajoute exactement l'adresse de cette page (${window.location.origin}).
+        <br><br>Recharge la page une fois vérifié.
+      `;
+    }
+
+    diag.innerHTML = html;
+    diag.classList.add('show');
   }
 
   // Bouton de secours pour ouvrir le chat manuellement, au cas où la bulle
@@ -431,11 +463,11 @@
       } else if (window.botpressWebChat && typeof window.botpressWebChat.sendEvent === 'function') {
         window.botpressWebChat.sendEvent({ type: 'show' });
       } else {
-        document.getElementById('diag').classList.add('show');
+        showDiag();
       }
     } catch (e) {
       console.error("Impossible d'ouvrir le chat:", e);
-      document.getElementById('diag').classList.add('show');
+      showDiag();
     }
   });
 

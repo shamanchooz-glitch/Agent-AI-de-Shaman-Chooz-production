@@ -13,10 +13,11 @@
 <meta name="apple-mobile-web-app-title" content="Shaman" />
 <meta name="mobile-web-app-capable" content="yes" />
 <style>
+  * { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
-    height: 100%;
+    min-height: 100%;
     background: linear-gradient(180deg, #16233A 0%, #101A2C 100%);
     font-family: -apple-system, system-ui, sans-serif;
   }
@@ -25,10 +26,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
+    min-height: 100vh;
     color: #F1EAD9;
     text-align: center;
     padding: 24px;
+    box-sizing: border-box;
   }
   .logo {
     width: 88px;
@@ -79,32 +81,214 @@
     color: #93A1B4;
     font-size: 14px;
     margin-top: 10px;
-    max-width: 260px;
+    max-width: 280px;
   }
-  #voice-toggle {
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
     margin-top: 20px;
-    background: #E0A458;
+  }
+  #voice-toggle, #open-chat, #install-btn, #open-offline-chat {
     border: none;
     border-radius: 10px;
     padding: 10px 20px;
-    color: #16233A;
     font-weight: 600;
     font-size: 14px;
     cursor: pointer;
+  }
+  #voice-toggle {
+    background: #E0A458;
+    color: #16233A;
   }
   #voice-toggle.off {
     background: #223349;
     color: #93A1B4;
   }
+  #open-chat {
+    background: #3FA76E;
+    color: #0E1A12;
+  }
+  #open-offline-chat {
+    background: #C97A3D;
+    color: #1A1208;
+    display: none;
+  }
+  #open-offline-chat.show { display: inline-block; }
+  #install-btn {
+    background: #2C4059;
+    color: #F1EAD9;
+    display: none;
+  }
+  #install-btn.show {
+    display: inline-block;
+  }
+  #diag {
+    display: none;
+    margin-top: 22px;
+    max-width: 300px;
+    background: #3A2323;
+    border: 1px solid #5A3232;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 13px;
+    color: #F1C7C7;
+    text-align: left;
+    line-height: 1.5;
+  }
+  #diag.show { display: block; }
+  #ios-hint {
+    display: none;
+    margin-top: 14px;
+    font-size: 12px;
+    color: #93A1B4;
+    max-width: 260px;
+  }
+  #ios-hint.show { display: block; }
+
+  /* Bandeau d'état réseau */
+  #net-banner {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+  }
+  #net-banner.show { display: block; }
+  #net-banner.offline { background: #7A4A22; color: #FFE7C7; }
+  #net-banner.online { background: #2C6B4A; color: #DFFFEA; }
+
+  /* Panneau de l'assistant hors-ligne */
+  #offline-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: #101A2C;
+    flex-direction: column;
+  }
+  #offline-panel.show { display: flex; }
+  #offline-header {
+    padding: 14px 16px;
+    background: #1B2A41;
+    border-bottom: 1px solid #2C4059;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #F1EAD9;
+  }
+  #offline-header .title {
+    font-weight: 700;
+    font-size: 15px;
+  }
+  #offline-header .subtitle {
+    font-size: 11px;
+    color: #E0A458;
+    margin-top: 2px;
+  }
+  #offline-close {
+    background: #223349;
+    border: none;
+    color: #F1EAD9;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #offline-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 82%;
+    padding: 10px 13px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+    text-align: left;
+    white-space: pre-wrap;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: #3FA76E;
+    color: #0E1A12;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: #223349;
+    color: #F1EAD9;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.system {
+    align-self: center;
+    background: transparent;
+    color: #93A1B4;
+    font-size: 12px;
+    text-align: center;
+  }
+  #offline-form {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: #1B2A41;
+    border-top: 1px solid #2C4059;
+  }
+  #offline-input {
+    flex: 1;
+    border-radius: 10px;
+    border: 1px solid #2C4059;
+    background: #101A2C;
+    color: #F1EAD9;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  #offline-send {
+    background: #E0A458;
+    color: #16233A;
+    border: none;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-weight: 700;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
 
+<div id="net-banner"></div>
+
 <div class="wrapper">
   <div class="logo"><img src="./icon-512.png" alt="Shaman" /></div>
   <div style="font-size:20px; font-weight:700;">Shaman</div>
-  <div class="hint">Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite pour discuter.</div>
-  <button id="voice-toggle">🔊 Voix activée</button>
+  <div class="hint" id="status-hint">Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.</div>
+
+  <div class="btn-row">
+    <button id="open-chat">💬 Discuter avec Shaman</button>
+    <button id="open-offline-chat">📴 Discuter hors ligne</button>
+    <button id="voice-toggle">🔊 Voix activée</button>
+    <button id="install-btn">⬇️ Installer l'app</button>
+  </div>
+
+  <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
+
+  <div id="diag">
+    ⚠️ Le chat ne s'est pas encore chargé. Vérifie que :
+    <br>1) ton téléphone/ordinateur est bien connecté à internet,
+    <br>2) le bot est publié côté Botpress,
+    <br>3) le nom de domaine de cette page est autorisé dans les réglages "Share" du bot sur Botpress Cloud.
+    <br>Recharge la page une fois vérifié. En attendant, le bouton "Discuter hors ligne" reste disponible.
+  </div>
 
   <div class="share-box">
     <div style="font-size:13px; color:#93A1B4; margin-bottom:10px;">Partage ce lien ou ce QR code à ta famille et tes amis :</div>
@@ -112,6 +296,22 @@
     <div class="share-link" id="share-link"></div>
     <button id="copy-link">📋 Copier le lien</button>
   </div>
+</div>
+
+<!-- Panneau de secours : assistant local qui fonctionne sans connexion -->
+<div id="offline-panel">
+  <div id="offline-header">
+    <div>
+      <div class="title">Shaman (mode hors ligne)</div>
+      <div class="subtitle" id="offline-subtitle">📴 Pas de connexion — réponses locales limitées</div>
+    </div>
+    <button id="offline-close">Fermer</button>
+  </div>
+  <div id="offline-messages"></div>
+  <form id="offline-form">
+    <input id="offline-input" type="text" placeholder="Écris ton message…" autocomplete="off" />
+    <button id="offline-send" type="submit">Envoyer</button>
+  </form>
 </div>
 
 <!-- Widget de chat Botpress -->
@@ -157,11 +357,14 @@
     );
   }
 
+  let botpressReady = false;
+
   // On écoute les nouveaux messages du bot pour les lire à voix haute.
   // Botpress a changé son API plusieurs fois selon les versions, donc on
   // couvre les différentes formes possibles pour maximiser les chances
   // que ça marche du premier coup, sans avoir à ajuster après coup.
-  function attachListener() {
+  function attachListener(attempt) {
+    attempt = attempt || 0;
     let attached = false;
 
     // Nouvelle API (webchat v2/v3) : window.botpress.on('message', ...)
@@ -176,6 +379,14 @@
           console.error('Erreur lecture message (API v2/v3):', e);
         }
       });
+
+      window.botpress.on('webchat:initialized', () => {
+        botpressReady = true;
+        document.getElementById('diag').classList.remove('show');
+        document.getElementById('status-hint').textContent =
+          "Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.";
+      });
+
       attached = true;
     }
 
@@ -192,18 +403,51 @@
         },
         ['MESSAGE.RECEIVED']
       );
+      botpressReady = true;
       attached = true;
     }
 
     if (!attached) {
-      // Le widget n'est pas encore chargé, on réessaie un peu plus tard
-      setTimeout(attachListener, 500);
+      if (attempt < 40 && navigator.onLine) {
+        // Le widget n'est pas encore chargé, on réessaie un peu plus tard
+        // (jusqu'à ~20 secondes avant d'afficher un diagnostic).
+        setTimeout(() => attachListener(attempt + 1), 500);
+      } else if (navigator.onLine) {
+        document.getElementById('diag').classList.add('show');
+      }
     }
   }
+
+  // Bouton de secours pour ouvrir le chat manuellement, au cas où la bulle
+  // native de Botpress ne s'affiche pas ou passe inaperçue.
+  document.getElementById('open-chat').addEventListener('click', () => {
+    if (!navigator.onLine) {
+      openOfflinePanel();
+      return;
+    }
+    try {
+      if (window.botpress && typeof window.botpress.open === 'function') {
+        window.botpress.open();
+      } else if (window.botpressWebChat && typeof window.botpressWebChat.sendEvent === 'function') {
+        window.botpressWebChat.sendEvent({ type: 'show' });
+      } else {
+        document.getElementById('diag').classList.add('show');
+      }
+    } catch (e) {
+      console.error("Impossible d'ouvrir le chat:", e);
+      document.getElementById('diag').classList.add('show');
+    }
+  });
+
   // Génère le QR code et affiche le lien à partager, à partir de l'adresse réelle de la page
   const currentUrl = window.location.href.split('?')[0].split('#')[0];
-  document.getElementById('qr-code').src =
-    'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(currentUrl);
+  const qrImg = document.getElementById('qr-code');
+  function loadQrCode() {
+    if (navigator.onLine) {
+      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(currentUrl);
+    }
+  }
+  loadQrCode();
   document.getElementById('share-link').textContent = currentUrl;
 
   document.getElementById('copy-link').addEventListener('click', () => {
@@ -215,15 +459,200 @@
     });
   });
 
-  attachListener();
+  // --- Installation PWA ---
+  // Sur Android/Chrome/Edge/desktop : on capte l'événement natif et on
+  // affiche notre propre bouton "Installer", car le bandeau automatique
+  // du navigateur n'apparaît pas toujours tout seul.
+  let deferredPrompt = null;
+  const installBtn = document.getElementById('install-btn');
 
-  // Enregistrement du service worker (nécessaire pour l'installation PWA)
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    installBtn.classList.add('show');
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.classList.remove('show');
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.classList.remove('show');
+  });
+
+  // Sur iOS/iPadOS (Safari), il n'existe pas d'événement d'installation :
+  // on affiche simplement l'astuce "Ajouter à l'écran d'accueil".
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (isIOS && !isInStandaloneMode) {
+    document.getElementById('ios-hint').classList.add('show');
+  }
+
+  // Enregistrement du service worker (nécessaire pour l'installation PWA
+  // ET pour que l'app s'ouvre correctement hors ligne).
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js').catch((e) => {
         console.error('Erreur service worker:', e);
       });
     });
+  }
+
+  /* =========================================================================
+     MODE HORS LIGNE
+     ---------------------------------------------------------------------
+     Le vrai bot (Botpress) a besoin d'internet pour réfléchir et répondre :
+     ça, aucun code ne peut le contourner totalement. En revanche, l'app :
+       1) s'ouvre toujours, même sans réseau du tout (grâce au service worker),
+       2) bascule automatiquement sur un petit assistant local qui peut
+          accueillir la personne, répondre à quelques questions simples et
+          surtout ENREGISTRER ses messages,
+       3) dès que la connexion revient, prévient la personne et lui permet
+          de renvoyer ces messages en un clic au vrai Shaman (Botpress).
+     Les familles/amis sans wifi ni forfait data peuvent donc ouvrir l'app
+     à tout moment, laisser leur message, et il ne sera perdu : il sera là,
+     prêt à être transmis dès que le réseau revient.
+  ========================================================================= */
+
+  const OFFLINE_QUEUE_KEY = 'shaman_offline_queue_v1';
+  const netBanner = document.getElementById('net-banner');
+  const offlinePanel = document.getElementById('offline-panel');
+  const offlineMessages = document.getElementById('offline-messages');
+  const offlineForm = document.getElementById('offline-form');
+  const offlineInput = document.getElementById('offline-input');
+  const offlineSubtitle = document.getElementById('offline-subtitle');
+  const openOfflineBtn = document.getElementById('open-offline-chat');
+
+  function getQueue() {
+    try {
+      return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveQueue(queue) {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  }
+
+  function addToQueue(text) {
+    const queue = getQueue();
+    queue.push({ text, time: new Date().toISOString() });
+    saveQueue(queue);
+  }
+
+  function appendMessage(text, role) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + role;
+    el.textContent = text;
+    offlineMessages.appendChild(el);
+    offlineMessages.scrollTop = offlineMessages.scrollHeight;
+  }
+
+  // Petit moteur de réponses locales, entièrement hors ligne (pas d'IA,
+  // juste des règles simples), pour que la personne ne se retrouve jamais
+  // face à un mur silencieux en attendant que la connexion revienne.
+  function localReply(userText) {
+    const t = userText.toLowerCase();
+    if (/\b(bonjour|salut|bjr|allo|coucou)\b/.test(t)) {
+      return "Bonjour ! Je suis Shaman, en mode hors ligne pour le moment. Je note bien ton message, je le transmettrai dès que la connexion reviendra.";
+    }
+    if (/\bmerci\b/.test(t)) {
+      return "Avec plaisir. Ton message est bien enregistré, il partira automatiquement dès que le réseau reviendra.";
+    }
+    if (/\b(comment tu vas|ça va|ca va)\b/.test(t)) {
+      return "Je fonctionne en mode réduit sans connexion, mais je t'écoute ! Dis-moi ce dont tu as besoin, je le garde de côté pour Shaman.";
+    }
+    if (/\b(urgent|urgence|aide|aidez[- ]moi)\b/.test(t)) {
+      return "Je note que c'est important. Ton message est sauvegardé et sera transmis en priorité dès que la connexion reviendra. Si c'est une urgence vitale, contacte directement les secours de ton pays.";
+    }
+    return "Message bien reçu et enregistré. Je n'ai pas de connexion en ce moment donc je ne peux pas réfléchir comme d'habitude, mais rien n'est perdu : dès que le réseau reviendra, ton message sera automatiquement transmis à Shaman pour une vraie réponse.";
+  }
+
+  function openOfflinePanel() {
+    offlinePanel.classList.add('show');
+    if (!offlineMessages.dataset.greeted) {
+      offlineMessages.dataset.greeted = '1';
+      appendMessage("Pas de connexion internet détectée. Tu peux quand même écrire ici : tes messages sont enregistrés sur cet appareil et seront envoyés à Shaman automatiquement dès que la connexion reviendra.", 'system');
+      const queue = getQueue();
+      queue.forEach((item) => appendMessage(item.text, 'user'));
+    }
+  }
+
+  document.getElementById('offline-close').addEventListener('click', () => {
+    offlinePanel.classList.remove('show');
+  });
+  openOfflineBtn.addEventListener('click', openOfflinePanel);
+
+  offlineForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = offlineInput.value.trim();
+    if (!text) return;
+    appendMessage(text, 'user');
+    addToQueue(text);
+    offlineInput.value = '';
+    setTimeout(() => {
+      const reply = localReply(text);
+      appendMessage(reply, 'bot');
+      speak(reply);
+    }, 350);
+  });
+
+  function setOnlineUI() {
+    document.getElementById('open-chat').style.display = '';
+    openOfflineBtn.classList.remove('show');
+    netBanner.classList.remove('offline');
+    netBanner.classList.add('online', 'show');
+    netBanner.textContent = '🟢 Connexion rétablie';
+
+    const queue = getQueue();
+    if (queue.length > 0) {
+      netBanner.textContent = `🟢 Connexion rétablie — ${queue.length} message(s) en attente, transmission à Shaman…`;
+      offlineSubtitle.textContent = '✅ Connexion rétablie — transmission en cours';
+      // On ouvre automatiquement le vrai chat pour que la personne puisse
+      // voir/renvoyer ce qu'elle a laissé pendant la coupure.
+      let tries = 0;
+      const tryOpen = setInterval(() => {
+        tries++;
+        if (window.botpress && typeof window.botpress.open === 'function') {
+          clearInterval(tryOpen);
+          window.botpress.open();
+          appendMessage('Connexion revenue ! Voici tes messages en attente — ils sont prêts à être renvoyés dans le vrai chat avec Shaman.', 'system');
+          saveQueue([]);
+        } else if (tries > 20) {
+          clearInterval(tryOpen);
+        }
+      }, 500);
+      loadQrCode();
+    } else {
+      setTimeout(() => netBanner.classList.remove('show'), 3000);
+    }
+
+    attachListener();
+  }
+
+  function setOfflineUI() {
+    document.getElementById('open-chat').style.display = 'none';
+    openOfflineBtn.classList.add('show');
+    netBanner.classList.remove('online');
+    netBanner.classList.add('offline', 'show');
+    netBanner.textContent = '📴 Pas de connexion — mode hors ligne actif, rien n\'est perdu';
+    offlineSubtitle.textContent = '📴 Pas de connexion — réponses locales limitées';
+    document.getElementById('status-hint').textContent =
+      "Pas de réseau détecté pour le moment. Utilise \"Discuter hors ligne\" : tes messages seront gardés et envoyés à Shaman dès que la connexion reviendra.";
+  }
+
+  window.addEventListener('online', setOnlineUI);
+  window.addEventListener('offline', setOfflineUI);
+
+  if (navigator.onLine) {
+    attachListener();
+  } else {
+    setOfflineUI();
   }
 </script>
 

@@ -314,9 +314,36 @@
   // afficher un diagnostic ciblé plutôt qu'un message générique.
   window.__bpInjectFailed = false;
   window.__bpConfigFailed = false;
+
+  // Chargeur résilient : si la version "v3" de la librairie Botpress ne
+  // répond pas (alias cassé, cache CDN, etc.), on essaie automatiquement
+  // d'autres versions connues avant de conclure à un vrai blocage réseau.
+  // Une fois la librairie chargée, on charge le fichier de config propre
+  // à CE bot (celui-ci n'a pas d'équivalent de secours, il est unique).
+  const BP_INJECT_VERSIONS = ['v3', 'v3.2', 'v2.3', 'v2.2', 'v1', 'v0'];
+  const BP_CONFIG_URL = 'https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js';
+
+  function loadBotpress(versionIndex) {
+    versionIndex = versionIndex || 0;
+    if (versionIndex >= BP_INJECT_VERSIONS.length) {
+      window.__bpInjectFailed = true;
+      return;
+    }
+    const version = BP_INJECT_VERSIONS[versionIndex];
+    const script = document.createElement('script');
+    script.src = `https://cdn.botpress.cloud/webchat/${version}/inject.js`;
+    script.onload = () => {
+      const configScript = document.createElement('script');
+      configScript.src = BP_CONFIG_URL;
+      configScript.defer = true;
+      configScript.onerror = () => { window.__bpConfigFailed = true; };
+      document.body.appendChild(configScript);
+    };
+    script.onerror = () => loadBotpress(versionIndex + 1);
+    document.body.appendChild(script);
+  }
+  loadBotpress();
 </script>
-<script src="https://cdn.botpress.cloud/webchat/v3/inject.js" onerror="window.__bpInjectFailed = true;"></script>
-<script src="https://files.bpcontent.cloud/2026/08/03/08/20260803083655-968F1KI0.js" defer onerror="window.__bpConfigFailed = true;"></script>
 
 <script>
   let voiceOn = true;
@@ -427,9 +454,11 @@
 
     if (window.__bpInjectFailed) {
       html = `
-        ⚠️ Le script principal de Botpress (cdn.botpress.cloud) n'a pas pu être chargé.
-        <br><br>Cause la plus probable : ta connexion bloque ce domaine (réseau d'entreprise/école, bloqueur de pub, ou coupure réseau).
-        <br><br>➡️ Essaie avec une autre connexion (data mobile), ou désactive un éventuel bloqueur de pub, puis recharge la page.
+        ⚠️ Le script principal de Botpress (cdn.botpress.cloud) n'a pas pu être chargé, même après plusieurs versions testées.
+        <br><br>Pour savoir si c'est ton réseau ou un vrai blocage plus large : copie ce lien et ouvre-le dans un nouvel onglet Chrome :
+        <br>https://cdn.botpress.cloud/webchat/v3/inject.js
+        <br><br>• Si une page de texte/code s'affiche → le domaine est accessible, réessaie de recharger cette page (parfois un simple rechargement suffit).
+        <br>• Si Chrome affiche une erreur ("Ce site est inaccessible", DNS, etc.) → le domaine cdn.botpress.cloud est bloqué par ton opérateur/pays. Essaie avec un VPN ou une autre carte SIM/opérateur.
       `;
     } else if (window.__bpConfigFailed) {
       html = `

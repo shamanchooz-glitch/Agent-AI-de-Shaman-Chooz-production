@@ -545,7 +545,16 @@
         window.botpress.sendMessage(transcript);
       }
     };
-    recognition.onerror = () => { if (handsFreeOn) setTimeout(startListening, 1500); };
+    recognition.onerror = (e) => {
+      if (e && e.error && ['not-allowed', 'service-not-allowed'].includes(e.error)) {
+        alert("Le microphone est bloqué pour ce site. Va dans les réglages de Chrome (⋮ > Infos sur le site > Autorisations > Microphone) et autorise-le, puis réessaie.");
+        handsFreeOn = false;
+        handsFreeBtn.textContent = '🎧 Mode mains libres';
+        handsFreeBtn.classList.add('off');
+        return;
+      }
+      if (handsFreeOn) setTimeout(startListening, 1500);
+    };
     try { recognition.start(); } catch (e) {}
   }
 
@@ -574,7 +583,17 @@
     );
   }
 
+  // Botpress ne fournit pas de champ "direction" tout prêt sur les messages
+  // reçus via on('message', ...) : il faut comparer l'auteur du message à
+  // l'identifiant du visiteur lui-même (récupéré une fois via getUser()).
+  // C'est ça qui manquait et empêchait la voix de fonctionner.
+  let selfUserId = null;
+
   function isBotMessage(message) {
+    if (!message) return false;
+    if (message.authorId && selfUserId) {
+      return message.authorId !== selfUserId;
+    }
     return (
       message?.direction === 'incoming' ||
       message?.authorRole === 'bot' ||
@@ -612,6 +631,14 @@
         document.getElementById('status-hint').textContent =
           "Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.";
       });
+
+      // Nécessaire pour que isBotMessage() puisse distinguer les messages
+      // du visiteur de ceux du bot (voir la fonction isBotMessage ci-dessus).
+      if (typeof window.botpress.getUser === 'function') {
+        window.botpress.getUser().then((u) => {
+          selfUserId = u?.user?.id || u?.id || null;
+        }).catch(() => {});
+      }
 
       attached = true;
     }

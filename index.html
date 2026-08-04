@@ -309,6 +309,8 @@
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
 
+  <div id="voice-debug" style="font-size:11px;color:#93A1B4;margin-top:10px;text-align:left;background:#101A2C;border:1px solid #2C4059;border-radius:8px;padding:8px;white-space:pre-wrap;"></div>
+
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
   <div id="diag"></div>
@@ -603,6 +605,69 @@
   }
 
   let botpressReady = false;
+  let pendingMessages = []; // messages reçus avant qu'on sache qui est "soi-même"
+  let getUserTries = 0;
+
+  function debugLog(line) {
+    const box = document.getElementById('voice-debug');
+    if (box) box.textContent = line;
+  }
+
+  function handleIncomingMessage(message) {
+    try {
+      const text = extractBotText(message);
+      if (selfUserId === null && message?.authorId) {
+        // On ne sait pas encore qui est le visiteur : on met en attente.
+        pendingMessages.push(message);
+        debugLog('Message reçu, en attente d\'identification (' + pendingMessages.length + ')…');
+        return;
+      }
+      const bot = isBotMessage(message);
+      debugLog('Dernier message : "' + (text || '(vide)').slice(0, 60) + '" — ' + (bot ? 'BOT (lu à voix haute)' : 'visiteur (pas lu)'));
+      if (bot && text) speak(text);
+    } catch (e) {
+      debugLog('Erreur : ' + e.message);
+    }
+  }
+
+  function tryGetUser() {
+    getUserTries++;
+    if (window.botpress && typeof window.botpress.getUser === 'function') {
+      window.botpress.getUser().then((u) => {
+        const id = u?.user?.id || u?.id || null;
+        if (id) {
+          selfUserId = id;
+          // On traite les messages mis en attente maintenant qu'on sait qui est qui.
+          pendingMessages.forEach(handleIncomingMessage);
+          pendingMessages = [];
+        } else if (getUserTries < 12) {
+          setTimeout(tryGetUser, 800);
+        } else {
+          fallbackToFirstMessage();
+        }
+      }).catch(() => {
+        if (getUserTries < 12) setTimeout(tryGetUser, 800);
+        else fallbackToFirstMessage();
+      });
+    } else if (getUserTries < 12) {
+      setTimeout(tryGetUser, 800);
+    } else {
+      fallbackToFirstMessage();
+    }
+  }
+
+  // Solution de secours si getUser() ne fonctionne jamais : on suppose que
+  // le tout premier message reçu est celui du visiteur (cas quasi toujours
+  // vrai), et tout ce qui a un auteur différent ensuite vient du bot.
+  function fallbackToFirstMessage() {
+    if (selfUserId !== null || !pendingMessages.length) return;
+    const first = pendingMessages[0];
+    if (first?.authorId) {
+      selfUserId = first.authorId;
+      pendingMessages.forEach(handleIncomingMessage);
+      pendingMessages = [];
+    }
+  }
 
   // On écoute les nouveaux messages du bot pour les lire à voix haute.
   // Botpress a changé son API plusieurs fois selon les versions, donc on
@@ -614,31 +679,15 @@
 
     // Nouvelle API (webchat v2/v3) : window.botpress.on('message', ...)
     if (window.botpress && typeof window.botpress.on === 'function') {
-      window.botpress.on('message', (message) => {
-        try {
-          if (isBotMessage(message)) {
-            const text = extractBotText(message);
-            if (text) speak(text);
-          }
-        } catch (e) {
-          console.error('Erreur lecture message (API v2/v3):', e);
-        }
-      });
+      window.botpress.on('message', handleIncomingMessage);
 
       window.botpress.on('webchat:initialized', () => {
         botpressReady = true;
         document.getElementById('diag').classList.remove('show');
         document.getElementById('status-hint').textContent =
           "Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.";
+        tryGetUser();
       });
-
-      // Nécessaire pour que isBotMessage() puisse distinguer les messages
-      // du visiteur de ceux du bot (voir la fonction isBotMessage ci-dessus).
-      if (typeof window.botpress.getUser === 'function') {
-        window.botpress.getUser().then((u) => {
-          selfUserId = u?.user?.id || u?.id || null;
-        }).catch(() => {});
-      }
 
       attached = true;
     }

@@ -14,7 +14,7 @@
 //   sur l'assistant local de secours, pas le service worker qui simule une
 //   réponse.
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = `shaman-shell-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -57,22 +57,23 @@ self.addEventListener('fetch', (event) => {
 
   if (req.method !== 'GET') return;
 
-  // Fichiers de l'app elle-même : cache d'abord (ouverture instantanée et
-  // fiable hors ligne), avec mise à jour silencieuse en arrière-plan dès que
-  // le réseau répond.
+  // Fichiers de l'app elle-même : on essaie TOUJOURS le réseau en premier
+  // pour avoir la toute dernière version dès qu'il y a de la connexion ;
+  // le cache ne sert que de secours si le réseau échoue (hors ligne).
   if (isAppShellRequest(req.url)) {
     event.respondWith(
-      caches.open(CACHE_NAME).then((cache) =>
-        cache.match(req).then((cached) => {
-          const networkUpdate = fetch(req)
-            .then((response) => {
-              if (response && response.ok) cache.put(req, response.clone());
-              return response;
-            })
-            .catch(() => null);
-          return cached || networkUpdate || caches.match('./index.html');
+      fetch(req)
+        .then((response) => {
+          if (response && response.ok) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, response.clone()));
+          }
+          return response;
         })
-      )
+        .catch(() =>
+          caches.open(CACHE_NAME).then((cache) =>
+            cache.match(req).then((cached) => cached || caches.match('./index.html'))
+          )
+        )
     );
     return;
   }

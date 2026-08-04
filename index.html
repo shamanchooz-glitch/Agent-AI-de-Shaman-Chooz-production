@@ -309,7 +309,7 @@
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
 
-  <div id="voice-debug" style="font-size:11px;color:#93A1B4;margin-top:10px;text-align:left;background:#101A2C;border:1px solid #2C4059;border-radius:8px;padding:8px;white-space:pre-wrap;"></div>
+  <div id="voice-debug" style="font-size:13px;font-weight:700;color:#111;margin-top:10px;text-align:left;background:#FFD24C;border:3px solid #B00020;border-radius:8px;padding:10px;white-space:pre-wrap;min-height:20px;">(en attente d'un message…)</div>
 
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
@@ -686,8 +686,16 @@
         document.getElementById('diag').classList.remove('show');
         document.getElementById('status-hint').textContent =
           "Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.";
-        tryGetUser();
       });
+
+      // On lance tout de suite la recherche de l'identifiant du visiteur,
+      // sans dépendre d'un événement précis qui pourrait avoir changé de nom
+      // selon la version de Botpress.
+      tryGetUser();
+      // Filet de secours supplémentaire : si au bout de 5 secondes on a des
+      // messages en attente mais toujours pas d'identifiant, on force le repli.
+      setTimeout(fallbackToFirstMessage, 5000);
+      debugLog('Botpress détecté ✓ — en attente d\'un message…');
 
       attached = true;
     }
@@ -710,6 +718,7 @@
     }
 
     if (!attached) {
+      debugLog('Botpress pas encore détecté (essai ' + attempt + ')…');
       if (attempt < 90 && navigator.onLine) {
         // Le widget n'est pas encore chargé, on réessaie un peu plus tard
         // (jusqu'à ~45 secondes, pour laisser le temps aux tentatives

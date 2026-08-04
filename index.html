@@ -106,6 +106,32 @@
     background: #223349;
     color: #93A1B4;
   }
+  #lang-select, #tts-voice-select {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    background: #16233A;
+    color: #E7ECF3;
+    border: 1px solid #2C3F5A;
+    max-width: 180px;
+  }
+  #handsfree-toggle {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    background: #5B7FE0;
+    color: #0E1526;
+  }
+  #handsfree-toggle.off {
+    background: #223349;
+    color: #93A1B4;
+  }
   #open-chat {
     background: #3FA76E;
     color: #0E1A12;
@@ -277,6 +303,9 @@
     <button id="open-chat">💬 Discuter avec Shaman</button>
     <button id="open-offline-chat">📴 Discuter hors ligne</button>
     <button id="voice-toggle">🔊 Voix activée</button>
+    <select id="lang-select" title="Langue de la voix"></select>
+    <select id="tts-voice-select" title="Choix de la voix"></select>
+    <button id="handsfree-toggle">🎧 Mode mains libres</button>
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
 
@@ -408,6 +437,64 @@
 </script>
 
 <script>
+  // --- Langues du monde disponibles pour la voix (le bot lui-même comprend
+  // déjà n'importe quelle langue grâce à son IA ; ce sélecteur règle juste
+  // la langue de lecture à voix haute et de la reconnaissance vocale). ---
+  const WORLD_LANGS = [
+    { code: 'fr-FR', label: 'Français' },
+    { code: 'en-US', label: 'English (US)' },
+    { code: 'en-GB', label: 'English (UK)' },
+    { code: 'es-ES', label: 'Español' },
+    { code: 'pt-PT', label: 'Português' },
+    { code: 'pt-BR', label: 'Português (Brésil)' },
+    { code: 'de-DE', label: 'Deutsch' },
+    { code: 'it-IT', label: 'Italiano' },
+    { code: 'ar-SA', label: 'العربية' },
+    { code: 'zh-CN', label: '中文（简体）' },
+    { code: 'ja-JP', label: '日本語' },
+    { code: 'ru-RU', label: 'Русский' },
+    { code: 'hi-IN', label: 'हिन्दी' },
+    { code: 'tr-TR', label: 'Türkçe' },
+    { code: 'sw-KE', label: 'Kiswahili' },
+    { code: 'nl-NL', label: 'Nederlands' },
+    { code: 'ko-KR', label: '한국어' },
+  ];
+
+  let currentLang = 'fr-FR';
+  let currentVoice = null;
+
+  function populateLangSelect() {
+    const sel = document.getElementById('lang-select');
+    sel.innerHTML = WORLD_LANGS.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
+    sel.value = currentLang;
+    sel.addEventListener('change', () => {
+      currentLang = sel.value;
+      populateVoiceSelect();
+    });
+  }
+
+  function populateVoiceSelect() {
+    const sel = document.getElementById('tts-voice-select');
+    if (!window.speechSynthesis) { sel.innerHTML = '<option>Non supporté</option>'; return; }
+    const all = window.speechSynthesis.getVoices();
+    const base = currentLang.split('-')[0];
+    const matches = all.filter(v => v.lang && v.lang.toLowerCase().startsWith(base));
+    const list = matches.length ? matches : all;
+    sel.innerHTML = list.length
+      ? list.map((v, i) => `<option value="${i}">${v.name}</option>`).join('')
+      : '<option>Aucune voix installée</option>';
+    currentVoice = list[0] || null;
+    sel.onchange = () => { currentVoice = list[sel.value] || null; };
+  }
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = populateVoiceSelect;
+  }
+  populateLangSelect();
+  populateVoiceSelect();
+</script>
+
+<script>
   let voiceOn = true;
   const toggleBtn = document.getElementById('voice-toggle');
 
@@ -419,14 +506,64 @@
   });
 
   function speak(text) {
-    if (!voiceOn || !window.speechSynthesis || !text) return;
+    if (!voiceOn || !window.speechSynthesis || !text) {
+      if (handsFreeOn) setTimeout(startListening, 400);
+      return;
+    }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'fr-FR';
+    utter.lang = currentLang;
+    if (currentVoice) utter.voice = currentVoice;
     utter.rate = 1.02;
     utter.pitch = 0.95;
+    // En mode mains libres : dès que la réponse est terminée, on réécoute
+    // automatiquement — ça crée l'effet d'une conversation vocale suivie,
+    // même si ce n'est pas un appel téléphonique simultané (aucune app de
+    // ce type ne le fait sans un vrai service d'appel vocal en plus).
+    utter.onend = () => { if (handsFreeOn) startListening(); };
     window.speechSynthesis.speak(utter);
   }
+
+  // --- Mode mains libres : parle, la reconnaissance vocale transcrit,
+  // envoie le texte au bot, et la réponse est lue à voix haute. ---
+  let handsFreeOn = false;
+  let recognition = null;
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const handsFreeBtn = document.getElementById('handsfree-toggle');
+
+  function startListening() {
+    if (!SpeechRec || !handsFreeOn) return;
+    try { recognition && recognition.abort(); } catch (e) {}
+    recognition = new SpeechRec();
+    recognition.lang = currentLang;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      if (transcript && window.botpress && typeof window.botpress.sendMessage === 'function') {
+        window.botpress.open && window.botpress.open();
+        window.botpress.sendMessage(transcript);
+      }
+    };
+    recognition.onerror = () => { if (handsFreeOn) setTimeout(startListening, 1500); };
+    try { recognition.start(); } catch (e) {}
+  }
+
+  handsFreeBtn.addEventListener('click', () => {
+    if (!SpeechRec) {
+      alert("La reconnaissance vocale n'est pas prise en charge par ce navigateur. Utilise Chrome sur Android ou sur ordinateur.");
+      return;
+    }
+    handsFreeOn = !handsFreeOn;
+    handsFreeBtn.textContent = handsFreeOn ? '🎧 Mains libres · parle maintenant' : '🎧 Mode mains libres';
+    handsFreeBtn.classList.toggle('off', !handsFreeOn);
+    if (handsFreeOn) {
+      window.botpress && window.botpress.open && window.botpress.open();
+      startListening();
+    } else if (recognition) {
+      try { recognition.abort(); } catch (e) {}
+    }
+  });
 
   function extractBotText(message) {
     return (

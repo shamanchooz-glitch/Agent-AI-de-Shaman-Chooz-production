@@ -535,10 +535,14 @@
   const toggleBtn = document.getElementById('voice-toggle');
 
   toggleBtn.addEventListener('click', () => {
+    unlockSpeech();
     voiceOn = !voiceOn;
     if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
     toggleBtn.textContent = voiceOn ? '🔊 Voix activée' : '🔇 Voix coupée';
     toggleBtn.classList.toggle('off', !voiceOn);
+    // Petite phrase test immédiate : permet de vérifier tout de suite si le
+    // haut-parleur fonctionne, sans devoir attendre une réponse du bot.
+    if (voiceOn) speak('Voix activée.');
   });
 
   function speak(text, isRetry) {
@@ -635,6 +639,7 @@
   // envoie le texte au bot, et la réponse est lue à voix haute. ---
   let handsFreeOn = false;
   let recognition = null;
+  let listenWatchdog = null;
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   const handsFreeBtn = document.getElementById('handsfree-toggle');
 
@@ -660,20 +665,43 @@
   function startListening() {
     if (!SpeechRec) { setVoiceStatus("❌ La reconnaissance vocale n'est pas disponible sur ce navigateur.", true); return; }
     if (!handsFreeOn) return;
+    clearTimeout(listenWatchdog);
     try { recognition && recognition.abort(); } catch (e) {}
     recognition = new SpeechRec();
     recognition.lang = currentLang;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onstart = () => { setVoiceStatus('🎤 Je t\'écoute, parle maintenant…'); };
+    recognition.onstart = () => {
+      setVoiceStatus('🎤 Je t\'écoute, parle maintenant…');
+      // Filet de sécurité : sur certains téléphones (ex. Samsung d'entrée de
+      // gamme), le service de reconnaissance de Google peut se couper en
+      // silence, sans jamais déclencher ni onresult ni onerror. Sans ça,
+      // l'appli restait bloquée sur "Je t'écoute…" indéfiniment. Si rien ne
+      // se passe en 12 secondes, on force un redémarrage.
+      clearTimeout(listenWatchdog);
+      listenWatchdog = setTimeout(() => {
+        setVoiceStatus('⏱️ Pas de réponse du micro, nouvelle tentative…');
+        try { recognition && recognition.abort(); } catch (e) {}
+      }, 12000);
+    };
     recognition.onresult = (e) => {
+      clearTimeout(listenWatchdog);
       const transcript = e.results[0][0].transcript;
       if (!transcript) return;
       setVoiceStatus('📨 Message reçu : "' + transcript + '" — envoi à Shaman…');
       window.botpress && window.botpress.open && window.botpress.open();
       sendToBot(transcript);
     };
+    recognition.onend = () => {
+      // Se déclenche que la reconnaissance se soit arrêtée normalement
+      // (résultat/erreur déjà traités ci-dessus) OU en silence, sans aucun
+      // résultat ni erreur. Dans ce dernier cas, c'est ce qui laissait
+      // l'appli bloquée sur "Je t'écoute…" pour toujours : on relance.
+      clearTimeout(listenWatchdog);
+      if (handsFreeOn) setTimeout(startListening, 400);
+    };
     recognition.onerror = (e) => {
+      clearTimeout(listenWatchdog);
       const code = e && e.error;
       if (code && ['not-allowed', 'service-not-allowed'].includes(code)) {
         setVoiceStatus("❌ Micro bloqué pour ce site. Sur Chrome : appuie sur le ⋮ (ou l'icône ⓘ/🔒 dans la barre d'adresse) > Infos sur le site > Autorisations > Microphone > Autoriser, puis réessaie.", true);
@@ -688,8 +716,9 @@
       // en silence.
       if (handsFreeOn) {
         if (code === 'no-speech') {
+          // Pas grave : rien entendu pendant le silence habituel avant coupure.
+          // onend (juste après) relancera automatiquement l'écoute.
           setVoiceStatus('🔇 Rien entendu, nouvelle écoute…');
-          setTimeout(startListening, 1000);
         } else {
           setVoiceStatus('❌ Erreur du microphone (' + (code || 'inconnue') + '). Mode mains libres arrêté.', true);
           handsFreeOn = false;

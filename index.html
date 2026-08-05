@@ -309,8 +309,6 @@
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
 
-  <div id="voice-debug" style="font-size:13px;font-weight:700;color:#111;margin-top:10px;text-align:left;background:#FFD24C;border:3px solid #B00020;border-radius:8px;padding:10px;white-space:pre-wrap;min-height:20px;">(en attente d'un message…)</div>
-
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
   <div id="diag"></div>
@@ -608,31 +606,22 @@
   let pendingMessages = []; // messages reçus avant qu'on sache qui est "soi-même"
   let getUserTries = 0;
 
-  function debugLog(line) {
-    const box = document.getElementById('voice-debug');
-    if (box) box.textContent = line;
-  }
-
   function handleIncomingMessage(message) {
     try {
-      const text = extractBotText(message);
       if (selfUserId === null && message?.authorId) {
         // On ne sait pas encore qui est le visiteur : on met en attente.
         pendingMessages.push(message);
-        debugLog('Message reçu, en attente d\'identification (' + pendingMessages.length + ')…');
         // Dès qu'on a au moins 2 messages (le visiteur + une réponse), on a
         // largement de quoi distinguer qui est qui : pas besoin d'attendre
         // getUser() ou un minuteur plus longtemps.
         if (pendingMessages.length >= 2) fallbackToFirstMessage();
         return;
       }
+      const text = extractBotText(message);
       const bot = isBotMessage(message);
-      let raw = '';
-      try { raw = JSON.stringify(message).slice(0, 300); } catch (e) { raw = '(impossible à afficher)'; }
-      debugLog('texte extrait: "' + (text || '(vide)') + '" — ' + (bot ? 'BOT' : 'visiteur') + '\n\nBRUT: ' + raw);
       if (bot && text) speak(text);
     } catch (e) {
-      debugLog('Erreur : ' + e.message);
+      console.error('Erreur de lecture du message entrant:', e);
     }
   }
 
@@ -701,7 +690,6 @@
       // Filet de secours supplémentaire : si au bout de 5 secondes on a des
       // messages en attente mais toujours pas d'identifiant, on force le repli.
       setTimeout(fallbackToFirstMessage, 5000);
-      debugLog('Botpress détecté ✓ — en attente d\'un message…');
 
       attached = true;
     }
@@ -724,7 +712,6 @@
     }
 
     if (!attached) {
-      debugLog('Botpress pas encore détecté (essai ' + attempt + ')…');
       if (attempt < 90 && navigator.onLine) {
         // Le widget n'est pas encore chargé, on réessaie un peu plus tard
         // (jusqu'à ~45 secondes, pour laisser le temps aux tentatives

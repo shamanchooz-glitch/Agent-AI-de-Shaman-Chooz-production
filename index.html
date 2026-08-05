@@ -505,17 +505,23 @@
     toggleBtn.classList.toggle('off', !voiceOn);
   });
 
-  function speak(text) {
+  function speak(text, isRetry) {
     if (!voiceOn || !window.speechSynthesis || !text) {
       if (handsFreeOn) setTimeout(startListening, 400);
       return;
     }
+    // Bug connu de Chrome : la synthèse vocale peut se retrouver "en pause"
+    // interne après une période d'inactivité ou un changement d'onglet, et
+    // speak() ne produit alors plus rien tant qu'on n'appelle pas resume().
+    window.speechSynthesis.resume();
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = currentLang;
     if (currentVoice) utter.voice = currentVoice;
     utter.rate = 1.02;
     utter.pitch = 0.95;
+    let started = false;
+    utter.onstart = () => { started = true; };
     // En mode mains libres : dès que la réponse est terminée, on réécoute
     // automatiquement — ça crée l'effet d'une conversation vocale suivie,
     // même si ce n'est pas un appel téléphonique simultané (aucune app de
@@ -523,6 +529,18 @@
     utter.onend = () => { if (handsFreeOn) startListening(); };
     utter.onerror = () => { if (handsFreeOn) setTimeout(startListening, 400); };
     window.speechSynthesis.speak(utter);
+    // Filet de sécurité : certains navigateurs mobiles abandonnent
+    // silencieusement le tout premier utterance (aucune erreur, aucun
+    // événement) — notamment si la liste des voix n'était pas encore
+    // chargée au moment de l'appel. Si rien ne s'est mis à parler après un
+    // court délai, on retente une seule fois.
+    if (!isRetry) {
+      setTimeout(() => {
+        if (!started && voiceOn && !window.speechSynthesis.speaking) {
+          speak(text, true);
+        }
+      }, 600);
+    }
   }
 
   // --- Déverrouillage de la synthèse vocale ---------------------------------
@@ -532,24 +550,31 @@
   // façon asynchrone, le tout premier speak() était silencieusement bloqué,
   // sans la moindre erreur en console — c'est ce qui empêchait le
   // haut-parleur de fonctionner.
-  // Solution : dès le tout premier geste sur la page, on "amorce" la
-  // synthèse vocale avec un utterance quasi silencieux. Après ce premier
-  // geste, le navigateur autorise la parole pour le reste de la session,
+  // Solution : à chacun des tout premiers gestes sur la page, on "amorce" la
+  // synthèse vocale avec un utterance quasi silencieux (on retente sur
+  // plusieurs gestes au cas où la toute première tentative échoue parce que
+  // la liste des voix du système n'était pas encore chargée). Une fois
+  // amorcée, le navigateur autorise la parole pour le reste de la session,
   // même depuis des callbacks asynchrones.
   let speechUnlocked = false;
+  let unlockAttempts = 0;
   function unlockSpeech() {
-    if (speechUnlocked || !window.speechSynthesis) return;
-    speechUnlocked = true;
+    if (speechUnlocked || !window.speechSynthesis || unlockAttempts >= 5) return;
+    unlockAttempts++;
     try {
+      window.speechSynthesis.resume();
       const primer = new SpeechSynthesisUtterance(' ');
       primer.volume = 0;
       primer.rate = 10;
+      primer.onstart = () => { speechUnlocked = true; };
+      primer.onend = () => { speechUnlocked = true; };
       window.speechSynthesis.speak(primer);
     } catch (e) {}
   }
   ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, unlockSpeech, { once: true, passive: true });
+    document.addEventListener(evt, unlockSpeech, { passive: true });
   });
+
 
   // --- Mode mains libres : parle, la reconnaissance vocale transcrit,
   // envoie le texte au bot, et la réponse est lue à voix haute. ---
@@ -898,11 +923,30 @@
 
   // Enregistrement du service worker (nécessaire pour l'installation PWA
   // ET pour que l'app s'ouvre correctement hors ligne).
+  //
+  // Piège classique des PWA : une fois installé, le service worker peut
+  // continuer à servir une VERSION MISE EN CACHE du site, même après avoir
+  // republié un fichier corrigé sur GitHub Pages. Résultat : on corrige le
+  // code, mais le téléphone continue d'exécuter l'ancienne version — le bug
+  // semble "toujours là" alors qu'il est déjà réglé côté fichier. On force
+  // donc activement la vérification d'une nouvelle version à chaque
+  // ouverture, et on recharge une seule fois automatiquement dès qu'une
+  // version plus récente prend le contrôle de la page.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch((e) => {
+      navigator.serviceWorker.register('./sw.js').then((reg) => {
+        // Vérifie tout de suite s'il existe une version plus récente du
+        // service worker (donc du contenu mis en cache).
+        reg.update().catch(() => {});
+      }).catch((e) => {
         console.error('Erreur service worker:', e);
       });
+    });
+    let alreadyReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (alreadyReloaded) return;
+      alreadyReloaded = true;
+      window.location.reload();
     });
   }
 

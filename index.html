@@ -627,7 +627,9 @@
         return;
       }
       const bot = isBotMessage(message);
-      debugLog('Dernier message : "' + (text || '(vide)').slice(0, 60) + '" — ' + (bot ? 'BOT (lu à voix haute)' : 'visiteur (pas lu)'));
+      let raw = '';
+      try { raw = JSON.stringify(message).slice(0, 300); } catch (e) { raw = '(impossible à afficher)'; }
+      debugLog('texte extrait: "' + (text || '(vide)') + '" — ' + (bot ? 'BOT' : 'visiteur') + '\n\nBRUT: ' + raw);
       if (bot && text) speak(text);
     } catch (e) {
       debugLog('Erreur : ' + e.message);

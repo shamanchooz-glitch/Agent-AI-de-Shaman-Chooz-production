@@ -150,6 +150,15 @@
   #install-btn.show {
     display: inline-block;
   }
+  #voice-status {
+    display: none;
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #E0A458;
+    max-width: 300px;
+  }
+  #voice-status.show { display: block; }
   #diag {
     display: none;
     margin-top: 22px;
@@ -308,6 +317,8 @@
     <button id="handsfree-toggle">🎧 Mode mains libres</button>
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
+
+  <div id="voice-status"></div>
 
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
@@ -495,6 +506,23 @@
 </script>
 
 <script>
+  // Petit indicateur visuel d'état, affiché directement sur la page : sans
+  // ça, si le micro ou la voix échoue silencieusement (permission refusée,
+  // aucune voix installée, réseau lent...), la personne n'a aucun moyen de
+  // savoir CE QUI se passe — elle voit juste "ça ne marche pas". On log
+  // aussi tout dans la console (F12 sur ordi, ou via chrome://inspect
+  // depuis un PC relié en USB pour un téléphone Android) pour un diagnostic
+  // encore plus précis si besoin.
+  const voiceStatusEl = document.getElementById('voice-status');
+  function setVoiceStatus(text, isError) {
+    if (!voiceStatusEl) return;
+    if (!text) { voiceStatusEl.classList.remove('show'); return; }
+    voiceStatusEl.textContent = text;
+    voiceStatusEl.style.color = isError ? '#F1A0A0' : '#E0A458';
+    voiceStatusEl.classList.add('show');
+    console.log('[Shaman voix]', text);
+  }
+
   let voiceOn = true;
   const toggleBtn = document.getElementById('voice-toggle');
 
@@ -506,7 +534,12 @@
   });
 
   function speak(text, isRetry) {
-    if (!voiceOn || !window.speechSynthesis || !text) {
+    if (!window.speechSynthesis) {
+      setVoiceStatus("❌ Ce navigateur ne sait pas lire du texte à voix haute (speechSynthesis absent).", true);
+      if (handsFreeOn) setTimeout(startListening, 400);
+      return;
+    }
+    if (!voiceOn || !text) {
       if (handsFreeOn) setTimeout(startListening, 400);
       return;
     }
@@ -521,13 +554,16 @@
     utter.rate = 1.02;
     utter.pitch = 0.95;
     let started = false;
-    utter.onstart = () => { started = true; };
+    utter.onstart = () => { started = true; setVoiceStatus('🔊 Shaman parle…'); };
     // En mode mains libres : dès que la réponse est terminée, on réécoute
     // automatiquement — ça crée l'effet d'une conversation vocale suivie,
     // même si ce n'est pas un appel téléphonique simultané (aucune app de
     // ce type ne le fait sans un vrai service d'appel vocal en plus).
-    utter.onend = () => { if (handsFreeOn) startListening(); };
-    utter.onerror = () => { if (handsFreeOn) setTimeout(startListening, 400); };
+    utter.onend = () => { if (handsFreeOn) startListening(); else setVoiceStatus(''); };
+    utter.onerror = (e) => {
+      setVoiceStatus('❌ Erreur de lecture audio (' + (e && e.error ? e.error : 'inconnue') + ')', true);
+      if (handsFreeOn) setTimeout(startListening, 400);
+    };
     window.speechSynthesis.speak(utter);
     // Filet de sécurité : certains navigateurs mobiles abandonnent
     // silencieusement le tout premier utterance (aucune erreur, aucun
@@ -540,6 +576,17 @@
           speak(text, true);
         }
       }, 600);
+    } else {
+      // On est déjà dans la seconde tentative (isRetry=true) : si toujours
+      // rien après un délai raisonnable, la voix ne fonctionne vraiment pas
+      // sur cet appareil/navigateur (souvent : aucune voix installée dans
+      // les réglages système, ou lecture audio bloquée par le navigateur).
+      setTimeout(() => {
+        if (!started && !window.speechSynthesis.speaking) {
+          setVoiceStatus('❌ Le haut-parleur ne répond pas sur cet appareil. Vérifie qu\'une voix est installée dans les réglages du téléphone (Réglages > Accessibilité/Synthèse vocale), et que le son n\'est pas coupé.', true);
+          if (handsFreeOn) setTimeout(startListening, 800);
+        }
+      }, 900);
     }
   }
 
@@ -603,21 +650,25 @@
   }
 
   function startListening() {
-    if (!SpeechRec || !handsFreeOn) return;
+    if (!SpeechRec) { setVoiceStatus("❌ La reconnaissance vocale n'est pas disponible sur ce navigateur.", true); return; }
+    if (!handsFreeOn) return;
     try { recognition && recognition.abort(); } catch (e) {}
     recognition = new SpeechRec();
     recognition.lang = currentLang;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
+    recognition.onstart = () => { setVoiceStatus('🎤 Je t\'écoute, parle maintenant…'); };
     recognition.onresult = (e) => {
       const transcript = e.results[0][0].transcript;
       if (!transcript) return;
+      setVoiceStatus('📨 Message reçu : "' + transcript + '" — envoi à Shaman…');
       window.botpress && window.botpress.open && window.botpress.open();
       sendToBot(transcript);
     };
     recognition.onerror = (e) => {
-      if (e && e.error && ['not-allowed', 'service-not-allowed'].includes(e.error)) {
-        alert("Le microphone est bloqué pour ce site. Va dans les réglages de Chrome (⋮ > Infos sur le site > Autorisations > Microphone) et autorise-le, puis réessaie.");
+      const code = e && e.error;
+      if (code && ['not-allowed', 'service-not-allowed'].includes(code)) {
+        setVoiceStatus("❌ Micro bloqué pour ce site. Sur Chrome : appuie sur le ⋮ (ou l'icône ⓘ/🔒 dans la barre d'adresse) > Infos sur le site > Autorisations > Microphone > Autoriser, puis réessaie.", true);
         handsFreeOn = false;
         handsFreeBtn.textContent = '🎧 Mode mains libres';
         handsFreeBtn.classList.add('off');
@@ -628,9 +679,11 @@
       // coupe proprement le mode mains libres plutôt que de rester bloqué
       // en silence.
       if (handsFreeOn) {
-        if (e && e.error === 'no-speech') {
+        if (code === 'no-speech') {
+          setVoiceStatus('🔇 Rien entendu, nouvelle écoute…');
           setTimeout(startListening, 1000);
         } else {
+          setVoiceStatus('❌ Erreur du microphone (' + (code || 'inconnue') + '). Mode mains libres arrêté.', true);
           handsFreeOn = false;
           handsFreeBtn.textContent = '🎧 Mode mains libres';
           handsFreeBtn.classList.add('off');
@@ -640,6 +693,7 @@
     try {
       recognition.start();
     } catch (e) {
+      setVoiceStatus('❌ Impossible de démarrer le microphone (' + (e && e.message ? e.message : e) + ').', true);
       handsFreeOn = false;
       handsFreeBtn.textContent = '🎧 Mode mains libres';
       handsFreeBtn.classList.add('off');
@@ -660,6 +714,7 @@
       startListening();
     } else if (recognition) {
       try { recognition.abort(); } catch (e) {}
+      setVoiceStatus('');
     }
   });
 
@@ -719,7 +774,7 @@
     getUserTries++;
     if (window.botpress && typeof window.botpress.getUser === 'function') {
       window.botpress.getUser().then((u) => {
-        const id = u?.user?.id || u?.id || null;
+        const id = u?.user?.id || u?.id || u?.userId || u?.user?.userId || null;
         if (id) {
           selfUserId = id;
           // On traite les messages mis en attente maintenant qu'on sait qui est qui.

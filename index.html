@@ -620,6 +620,10 @@
         // On ne sait pas encore qui est le visiteur : on met en attente.
         pendingMessages.push(message);
         debugLog('Message reçu, en attente d\'identification (' + pendingMessages.length + ')…');
+        // Dès qu'on a au moins 2 messages (le visiteur + une réponse), on a
+        // largement de quoi distinguer qui est qui : pas besoin d'attendre
+        // getUser() ou un minuteur plus longtemps.
+        if (pendingMessages.length >= 2) fallbackToFirstMessage();
         return;
       }
       const bot = isBotMessage(message);

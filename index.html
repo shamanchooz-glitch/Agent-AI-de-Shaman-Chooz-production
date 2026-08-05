@@ -522,6 +522,14 @@
     voiceStatusEl.classList.add('show');
     console.log('[Shaman voix]', text);
   }
+  // Cause n°1 de "ça ne marche pas du tout, aucune erreur visible" : la page
+  // est ouverte en double-cliquant le fichier (file://) au lieu d'être servie
+  // en http(s)://. Le micro (SpeechRecognition) est alors bloqué par Chrome
+  // sans le moindre message. On le signale tout de suite, avant même que la
+  // personne touche un bouton.
+  if (location.protocol === 'file:') {
+    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://). Le micro ne fonctionnera pas ainsi : il faut héberger la page (http:// ou https://), par ex. en la mettant en ligne ou via un petit serveur local.', true);
+  }
 
   let voiceOn = true;
   const toggleBtn = document.getElementById('voice-toggle');

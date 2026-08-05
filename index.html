@@ -521,8 +521,35 @@
     // même si ce n'est pas un appel téléphonique simultané (aucune app de
     // ce type ne le fait sans un vrai service d'appel vocal en plus).
     utter.onend = () => { if (handsFreeOn) startListening(); };
+    utter.onerror = () => { if (handsFreeOn) setTimeout(startListening, 400); };
     window.speechSynthesis.speak(utter);
   }
+
+  // --- Déverrouillage de la synthèse vocale ---------------------------------
+  // Les navigateurs mobiles (Chrome Android, Safari iOS) empêchent tout appel
+  // à speechSynthesis.speak() qui ne serait pas directement déclenché par un
+  // geste de l'utilisateur (tap/clic). Comme la réponse du bot arrive de
+  // façon asynchrone, le tout premier speak() était silencieusement bloqué,
+  // sans la moindre erreur en console — c'est ce qui empêchait le
+  // haut-parleur de fonctionner.
+  // Solution : dès le tout premier geste sur la page, on "amorce" la
+  // synthèse vocale avec un utterance quasi silencieux. Après ce premier
+  // geste, le navigateur autorise la parole pour le reste de la session,
+  // même depuis des callbacks asynchrones.
+  let speechUnlocked = false;
+  function unlockSpeech() {
+    if (speechUnlocked || !window.speechSynthesis) return;
+    speechUnlocked = true;
+    try {
+      const primer = new SpeechSynthesisUtterance(' ');
+      primer.volume = 0;
+      primer.rate = 10;
+      window.speechSynthesis.speak(primer);
+    } catch (e) {}
+  }
+  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, unlockSpeech, { once: true, passive: true });
+  });
 
   // --- Mode mains libres : parle, la reconnaissance vocale transcrit,
   // envoie le texte au bot, et la réponse est lue à voix haute. ---
@@ -530,6 +557,20 @@
   let recognition = null;
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   const handsFreeBtn = document.getElementById('handsfree-toggle');
+
+  // Envoie le texte reconnu au bot une fois la fenêtre de chat réellement
+  // prête, au lieu de l'envoyer juste après open() (qui est asynchrone et
+  // pouvait faire perdre le message en mode mains libres). botpressReady
+  // est déjà mis à jour par attachListener() plus bas.
+  function sendToBot(transcript, tries) {
+    tries = tries || 0;
+    if (!transcript) return;
+    if (window.botpress && typeof window.botpress.sendMessage === 'function' && (botpressReady || tries > 10)) {
+      window.botpress.sendMessage(transcript);
+    } else if (tries < 20) {
+      setTimeout(() => sendToBot(transcript, tries + 1), 200);
+    }
+  }
 
   function startListening() {
     if (!SpeechRec || !handsFreeOn) return;
@@ -540,10 +581,9 @@
     recognition.maxAlternatives = 1;
     recognition.onresult = (e) => {
       const transcript = e.results[0][0].transcript;
-      if (transcript && window.botpress && typeof window.botpress.sendMessage === 'function') {
-        window.botpress.open && window.botpress.open();
-        window.botpress.sendMessage(transcript);
-      }
+      if (!transcript) return;
+      window.botpress && window.botpress.open && window.botpress.open();
+      sendToBot(transcript);
     };
     recognition.onerror = (e) => {
       if (e && e.error && ['not-allowed', 'service-not-allowed'].includes(e.error)) {
@@ -553,12 +593,31 @@
         handsFreeBtn.classList.add('off');
         return;
       }
-      if (handsFreeOn) setTimeout(startListening, 1500);
+      // Sur certains navigateurs mobiles, un redémarrage automatique de la
+      // reconnaissance (hors geste utilisateur direct) peut échouer : on
+      // coupe proprement le mode mains libres plutôt que de rester bloqué
+      // en silence.
+      if (handsFreeOn) {
+        if (e && e.error === 'no-speech') {
+          setTimeout(startListening, 1000);
+        } else {
+          handsFreeOn = false;
+          handsFreeBtn.textContent = '🎧 Mode mains libres';
+          handsFreeBtn.classList.add('off');
+        }
+      }
     };
-    try { recognition.start(); } catch (e) {}
+    try {
+      recognition.start();
+    } catch (e) {
+      handsFreeOn = false;
+      handsFreeBtn.textContent = '🎧 Mode mains libres';
+      handsFreeBtn.classList.add('off');
+    }
   }
 
   handsFreeBtn.addEventListener('click', () => {
+    unlockSpeech();
     if (!SpeechRec) {
       alert("La reconnaissance vocale n'est pas prise en charge par ce navigateur. Utilise Chrome sur Android ou sur ordinateur.");
       return;
@@ -573,6 +632,7 @@
       try { recognition.abort(); } catch (e) {}
     }
   });
+
 
   function extractBotText(message) {
     return (

@@ -591,8 +591,13 @@
     tries = tries || 0;
     if (!transcript) return;
     if (window.botpress && typeof window.botpress.sendMessage === 'function' && (botpressReady || tries > 10)) {
-      window.botpress.sendMessage(transcript);
-    } else if (tries < 20) {
+      // sendMessage est asynchrone (Promise) : si l'envoi échoue parce que le
+      // widget n'était en fait pas encore tout à fait prêt, on réessaie au
+      // lieu de perdre silencieusement le message dicté par la personne.
+      Promise.resolve(window.botpress.sendMessage(transcript)).catch(() => {
+        if (tries < 25) setTimeout(() => sendToBot(transcript, tries + 1), 250);
+      });
+    } else if (tries < 25) {
       setTimeout(() => sendToBot(transcript, tries + 1), 200);
     }
   }
@@ -762,10 +767,23 @@
       window.botpress.on('message', handleIncomingMessage);
 
       window.botpress.on('webchat:initialized', () => {
-        botpressReady = true;
+        // "initialized" veut seulement dire que le widget a fini de charger et
+        // peut être OUVERT — pas qu'on peut déjà lui envoyer des messages.
+        // D'après la doc officielle Botpress, sendMessage n'est garanti
+        // disponible qu'après l'évènement "webchat:ready" (voir plus bas),
+        // qui ne se déclenche qu'une fois le chat ouvert pour la première
+        // fois. On garde "initialized" seulement pour l'affichage.
         document.getElementById('diag').classList.remove('show');
         document.getElementById('status-hint').textContent =
           "Assistant IA · répond au nom de Shaman. Appuie sur la bulle en bas à droite, ou sur le bouton ci-dessous, pour discuter.";
+      });
+
+      // C'est CET évènement qui indique que sendMessage() peut vraiment être
+      // utilisé (le chat a été ouvert au moins une fois et est prêt à
+      // recevoir des messages) — avant, l'envoi pouvait échouer silencieusement
+      // en mode mains libres, juste après l'ouverture automatique du chat.
+      window.botpress.on('webchat:ready', () => {
+        botpressReady = true;
       });
 
       // On lance tout de suite la recherche de l'identifiant du visiteur,

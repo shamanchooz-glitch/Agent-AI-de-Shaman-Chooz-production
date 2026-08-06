@@ -531,6 +531,7 @@
     if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
     toggleBtn.textContent = voiceOn ? '🔊 Voix activée' : '🔇 Voix coupée';
     toggleBtn.classList.toggle('off', !voiceOn);
+    if (voiceOn) speak('Vous pouvez communiquer maintenant, parlez.');
   });
 
   function speak(text, isRetry) {
@@ -697,6 +698,13 @@
     recognition.onerror = (e) => {
       handled = true;
       const code = e && e.error;
+      if (code === 'aborted') {
+        // Abandon volontaire : on vient de démarrer une nouvelle écoute et
+        // on a coupé l'ancienne (voir l'appel à recognition.abort() plus
+        // haut). Ce n'est pas une vraie erreur — avant ce correctif, ça
+        // coupait le mode mains libres juste après le premier échange.
+        return;
+      }
       if (code && ['not-allowed', 'service-not-allowed'].includes(code)) {
         setVoiceStatus("❌ Micro bloqué pour ce site. Sur Chrome : appuie sur le ⋮ (ou l'icône ⓘ/🔒 dans la barre d'adresse) > Infos sur le site > Autorisations > Microphone > Autoriser, puis réessaie.", true);
         handsFreeOn = false;
@@ -762,7 +770,12 @@
       handsFreeBtn.textContent = '🎧 Mains libres · parle maintenant';
       handsFreeBtn.classList.remove('off');
       window.botpress && window.botpress.open && window.botpress.open();
-      startListening();
+      // On annonce d'abord à voix haute que l'écoute va commencer, et
+      // l'écoute ne démarre qu'une fois cette annonce terminée (via
+      // l'onend de speak(), qui relance startListening() tant que
+      // handsFreeOn est vrai) — sinon le micro risque de capter la voix
+      // de Shaman elle-même comme si c'était la personne qui parlait.
+      speak('Vous pouvez communiquer maintenant, parlez.');
     };
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ audio: true })

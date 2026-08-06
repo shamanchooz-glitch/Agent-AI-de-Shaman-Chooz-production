@@ -90,33 +90,13 @@
     justify-content: center;
     margin-top: 20px;
   }
-  #voice-toggle, #open-chat, #install-btn, #open-offline-chat {
+  #open-chat, #install-btn, #open-offline-chat {
     border: none;
     border-radius: 10px;
     padding: 10px 20px;
     font-weight: 600;
     font-size: 14px;
     cursor: pointer;
-  }
-  #voice-toggle {
-    background: #E0A458;
-    color: #16233A;
-  }
-  #voice-toggle.off {
-    background: #223349;
-    color: #93A1B4;
-  }
-  #lang-select, #tts-voice-select {
-    border: none;
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    background: #16233A;
-    color: #E7ECF3;
-    border: 1px solid #2C3F5A;
-    max-width: 180px;
   }
   #open-chat {
     background: #3FA76E;
@@ -136,13 +116,43 @@
   #install-btn.show {
     display: inline-block;
   }
+  /* Interrupteur "lecture à voix haute" — placé juste au-dessus de la bulle
+     Botpress par défaut (bas droite), pour rester associé visuellement à la
+     conversation plutôt qu'isolé au milieu de la page. */
+  #voice-fab {
+    position: fixed;
+    right: 20px;
+    bottom: 92px;
+    z-index: 9999;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: none;
+    background: #E0A458;
+    color: #16233A;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  }
+  #voice-fab.off {
+    background: #223349;
+    color: #93A1B4;
+  }
   #voice-status {
+    position: fixed;
+    right: 20px;
+    bottom: 144px;
+    z-index: 9999;
     display: none;
-    margin-top: 12px;
-    font-size: 13px;
+    max-width: 220px;
+    background: #16233A;
+    border: 1px solid #2C3F5A;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
     font-weight: 600;
     color: #E0A458;
-    max-width: 300px;
+    text-align: right;
   }
   #voice-status.show { display: block; }
   #diag {
@@ -297,13 +307,8 @@
   <div class="btn-row">
     <button id="open-chat">💬 Discuter avec Shaman</button>
     <button id="open-offline-chat">📴 Discuter hors ligne</button>
-    <button id="voice-toggle">🔊 Voix activée</button>
-    <select id="lang-select" title="Langue de la voix"></select>
-    <select id="tts-voice-select" title="Choix de la voix"></select>
     <button id="install-btn">⬇️ Installer l'app</button>
   </div>
-
-  <div id="voice-status"></div>
 
   <div id="ios-hint">Sur iPhone/iPad : appuie sur l'icône de partage de Safari, puis "Sur l'écran d'accueil" pour installer l'app.</div>
 
@@ -316,6 +321,16 @@
     <button id="copy-link">📋 Copier le lien</button>
   </div>
 </div>
+
+<!-- Petit interrupteur "lecture à voix haute", volontairement collé à côté de
+     la bulle de chat Botpress (en bas à droite) plutôt que perdu au milieu de
+     la page — c'est l'endroit naturel où les gens s'attendent à le trouver
+     puisque c'est lié à la conversation. On ne peut pas l'insérer À
+     L'INTÉRIEUR de la fenêtre de chat elle-même (celle-ci est injectée et
+     gérée entièrement par le widget Botpress, hors de notre contrôle), donc
+     on le place juste au-dessus de la bulle, toujours visible. -->
+<button id="voice-fab" title="Activer/désactiver la lecture à voix haute des réponses">🔊</button>
+<div id="voice-status"></div>
 
 <!-- Panneau de secours : assistant local qui fonctionne sans connexion -->
 <div id="offline-panel">
@@ -433,9 +448,10 @@
 </script>
 
 <script>
-  // --- Langues du monde disponibles pour la voix (le bot lui-même comprend
-  // déjà n'importe quelle langue grâce à son IA ; ce sélecteur règle juste
-  // la langue de lecture à voix haute et de la reconnaissance vocale). ---
+  // --- Langue de la voix : détectée automatiquement depuis la langue du
+  // téléphone/navigateur, sans réglage manuel — on garde ça simple. Le bot
+  // lui-même comprend n'importe quelle langue grâce à son IA ; ceci ne
+  // règle que la voix de lecture à voix haute. ---
   const WORLD_LANGS = [
     { code: 'fr-FR', label: 'Français' },
     { code: 'en-US', label: 'English (US)' },
@@ -456,75 +472,70 @@
     { code: 'ko-KR', label: '한국어' },
   ];
 
-  let currentLang = 'fr-FR';
-  let currentVoice = null;
-
-  function populateLangSelect() {
-    const sel = document.getElementById('lang-select');
-    sel.innerHTML = WORLD_LANGS.map(l => `<option value="${l.code}">${l.label}</option>`).join('');
-    sel.value = currentLang;
-    sel.addEventListener('change', () => {
-      currentLang = sel.value;
-      populateVoiceSelect();
-    });
+  function detectLang() {
+    const nav = (navigator.language || 'fr-FR');
+    const exact = WORLD_LANGS.find(l => l.code.toLowerCase() === nav.toLowerCase());
+    if (exact) return exact.code;
+    const base = nav.split('-')[0];
+    const partial = WORLD_LANGS.find(l => l.code.split('-')[0] === base);
+    return partial ? partial.code : 'fr-FR';
   }
 
-  function populateVoiceSelect() {
-    const sel = document.getElementById('tts-voice-select');
-    if (!window.speechSynthesis) { sel.innerHTML = '<option>Non supporté</option>'; return; }
+  let currentLang = detectLang();
+  let currentVoice = null;
+
+  function pickVoice() {
+    if (!window.speechSynthesis) return;
     const all = window.speechSynthesis.getVoices();
     const base = currentLang.split('-')[0];
     const matches = all.filter(v => v.lang && v.lang.toLowerCase().startsWith(base));
-    const list = matches.length ? matches : all;
-    sel.innerHTML = list.length
-      ? list.map((v, i) => `<option value="${i}">${v.name}</option>`).join('')
-      : '<option>Aucune voix installée</option>';
-    currentVoice = list[0] || null;
-    sel.onchange = () => { currentVoice = list[sel.value] || null; };
+    currentVoice = matches[0] || all[0] || null;
   }
 
   if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = populateVoiceSelect;
+    window.speechSynthesis.onvoiceschanged = pickVoice;
   }
-  populateLangSelect();
-  populateVoiceSelect();
+  pickVoice();
 </script>
 
 <script>
-  // Petit indicateur visuel d'état, affiché directement sur la page : sans
-  // ça, si le micro ou la voix échoue silencieusement (permission refusée,
-  // aucune voix installée, réseau lent...), la personne n'a aucun moyen de
-  // savoir CE QUI se passe — elle voit juste "ça ne marche pas". On log
-  // aussi tout dans la console (F12 sur ordi, ou via chrome://inspect
-  // depuis un PC relié en USB pour un téléphone Android) pour un diagnostic
-  // encore plus précis si besoin.
+  // Petit indicateur visuel d'état, affiché brièvement près du bouton voix :
+  // sans ça, si la voix échoue silencieusement (aucune voix installée,
+  // lecture audio bloquée...), la personne n'a aucun moyen de savoir CE QUI
+  // se passe — elle voit juste "ça ne marche pas". On log aussi tout dans la
+  // console (F12 sur ordi, ou chrome://inspect depuis un PC relié en USB
+  // pour un téléphone Android) pour un diagnostic encore plus précis.
   const voiceStatusEl = document.getElementById('voice-status');
+  let voiceStatusTimer = null;
   function setVoiceStatus(text, isError) {
     if (!voiceStatusEl) return;
+    clearTimeout(voiceStatusTimer);
     if (!text) { voiceStatusEl.classList.remove('show'); return; }
     voiceStatusEl.textContent = text;
     voiceStatusEl.style.color = isError ? '#F1A0A0' : '#E0A458';
     voiceStatusEl.classList.add('show');
     console.log('[Shaman voix]', text);
+    // Le message reste affiché quelques secondes puis disparaît tout seul,
+    // pour ne pas encombrer l'écran en permanence à côté de la bulle.
+    voiceStatusTimer = setTimeout(() => voiceStatusEl.classList.remove('show'), isError ? 6000 : 2500);
   }
   // Cause n°1 de "ça ne marche pas du tout, aucune erreur visible" : la page
   // est ouverte en double-cliquant le fichier (file://) au lieu d'être servie
-  // en http(s)://. Le micro (SpeechRecognition) est alors bloqué par Chrome
-  // sans le moindre message. On le signale tout de suite, avant même que la
-  // personne touche un bouton.
+  // en http(s)://. On le signale tout de suite.
   if (location.protocol === 'file:') {
-    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://). Le micro ne fonctionnera pas ainsi : il faut héberger la page (http:// ou https://), par ex. en la mettant en ligne ou via un petit serveur local.', true);
+    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://) : héberge la page (http:// ou https://) pour que tout fonctionne.', true);
   }
 
   let voiceOn = true;
-  const toggleBtn = document.getElementById('voice-toggle');
+  const toggleBtn = document.getElementById('voice-fab');
 
   toggleBtn.addEventListener('click', () => {
     unlockSpeech();
     voiceOn = !voiceOn;
     if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
-    toggleBtn.textContent = voiceOn ? '🔊 Voix activée' : '🔇 Voix coupée';
+    toggleBtn.textContent = voiceOn ? '🔊' : '🔇';
     toggleBtn.classList.toggle('off', !voiceOn);
+    setVoiceStatus(voiceOn ? 'Lecture à voix haute activée' : 'Lecture à voix haute coupée');
     // Petite phrase test immédiate : permet de vérifier tout de suite si le
     // haut-parleur fonctionne, sans devoir attendre une réponse du bot.
     if (voiceOn) speak('Voix activée.');

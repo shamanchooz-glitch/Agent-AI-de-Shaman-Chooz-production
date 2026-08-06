@@ -116,45 +116,6 @@
   #install-btn.show {
     display: inline-block;
   }
-  /* Interrupteur "lecture à voix haute" — placé juste au-dessus de la bulle
-     Botpress par défaut (bas droite), pour rester associé visuellement à la
-     conversation plutôt qu'isolé au milieu de la page. */
-  #voice-fab {
-    position: fixed;
-    right: 20px;
-    bottom: 92px;
-    z-index: 9999;
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    border: none;
-    background: #E0A458;
-    color: #16233A;
-    font-size: 20px;
-    cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-  }
-  #voice-fab.off {
-    background: #223349;
-    color: #93A1B4;
-  }
-  #voice-status {
-    position: fixed;
-    right: 20px;
-    bottom: 144px;
-    z-index: 9999;
-    display: none;
-    max-width: 220px;
-    background: #16233A;
-    border: 1px solid #2C3F5A;
-    border-radius: 10px;
-    padding: 8px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #E0A458;
-    text-align: right;
-  }
-  #voice-status.show { display: block; }
   #diag {
     display: none;
     margin-top: 22px;
@@ -322,16 +283,6 @@
   </div>
 </div>
 
-<!-- Petit interrupteur "lecture à voix haute", volontairement collé à côté de
-     la bulle de chat Botpress (en bas à droite) plutôt que perdu au milieu de
-     la page — c'est l'endroit naturel où les gens s'attendent à le trouver
-     puisque c'est lié à la conversation. On ne peut pas l'insérer À
-     L'INTÉRIEUR de la fenêtre de chat elle-même (celle-ci est injectée et
-     gérée entièrement par le widget Botpress, hors de notre contrôle), donc
-     on le place juste au-dessus de la bulle, toujours visible. -->
-<button id="voice-fab" title="Activer/désactiver la lecture à voix haute des réponses">🔊</button>
-<div id="voice-status"></div>
-
 <!-- Panneau de secours : assistant local qui fonctionne sans connexion -->
 <div id="offline-panel">
   <div id="offline-header">
@@ -447,180 +398,6 @@
   }
 </script>
 
-<script>
-  // --- Langue de la voix : détectée automatiquement depuis la langue du
-  // téléphone/navigateur, sans réglage manuel — on garde ça simple. Le bot
-  // lui-même comprend n'importe quelle langue grâce à son IA ; ceci ne
-  // règle que la voix de lecture à voix haute. ---
-  const WORLD_LANGS = [
-    { code: 'fr-FR', label: 'Français' },
-    { code: 'en-US', label: 'English (US)' },
-    { code: 'en-GB', label: 'English (UK)' },
-    { code: 'es-ES', label: 'Español' },
-    { code: 'pt-PT', label: 'Português' },
-    { code: 'pt-BR', label: 'Português (Brésil)' },
-    { code: 'de-DE', label: 'Deutsch' },
-    { code: 'it-IT', label: 'Italiano' },
-    { code: 'ar-SA', label: 'العربية' },
-    { code: 'zh-CN', label: '中文（简体）' },
-    { code: 'ja-JP', label: '日本語' },
-    { code: 'ru-RU', label: 'Русский' },
-    { code: 'hi-IN', label: 'हिन्दी' },
-    { code: 'tr-TR', label: 'Türkçe' },
-    { code: 'sw-KE', label: 'Kiswahili' },
-    { code: 'nl-NL', label: 'Nederlands' },
-    { code: 'ko-KR', label: '한국어' },
-  ];
-
-  function detectLang() {
-    const nav = (navigator.language || 'fr-FR');
-    const exact = WORLD_LANGS.find(l => l.code.toLowerCase() === nav.toLowerCase());
-    if (exact) return exact.code;
-    const base = nav.split('-')[0];
-    const partial = WORLD_LANGS.find(l => l.code.split('-')[0] === base);
-    return partial ? partial.code : 'fr-FR';
-  }
-
-  let currentLang = detectLang();
-  let currentVoice = null;
-
-  function pickVoice() {
-    if (!window.speechSynthesis) return;
-    const all = window.speechSynthesis.getVoices();
-    const base = currentLang.split('-')[0];
-    const matches = all.filter(v => v.lang && v.lang.toLowerCase().startsWith(base));
-    currentVoice = matches[0] || all[0] || null;
-  }
-
-  if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = pickVoice;
-  }
-  pickVoice();
-</script>
-
-<script>
-  // Petit indicateur visuel d'état, affiché brièvement près du bouton voix :
-  // sans ça, si la voix échoue silencieusement (aucune voix installée,
-  // lecture audio bloquée...), la personne n'a aucun moyen de savoir CE QUI
-  // se passe — elle voit juste "ça ne marche pas". On log aussi tout dans la
-  // console (F12 sur ordi, ou chrome://inspect depuis un PC relié en USB
-  // pour un téléphone Android) pour un diagnostic encore plus précis.
-  const voiceStatusEl = document.getElementById('voice-status');
-  let voiceStatusTimer = null;
-  function setVoiceStatus(text, isError) {
-    if (!voiceStatusEl) return;
-    clearTimeout(voiceStatusTimer);
-    if (!text) { voiceStatusEl.classList.remove('show'); return; }
-    voiceStatusEl.textContent = text;
-    voiceStatusEl.style.color = isError ? '#F1A0A0' : '#E0A458';
-    voiceStatusEl.classList.add('show');
-    console.log('[Shaman voix]', text);
-    // Le message reste affiché quelques secondes puis disparaît tout seul,
-    // pour ne pas encombrer l'écran en permanence à côté de la bulle.
-    voiceStatusTimer = setTimeout(() => voiceStatusEl.classList.remove('show'), isError ? 6000 : 2500);
-  }
-  // Cause n°1 de "ça ne marche pas du tout, aucune erreur visible" : la page
-  // est ouverte en double-cliquant le fichier (file://) au lieu d'être servie
-  // en http(s)://. On le signale tout de suite.
-  if (location.protocol === 'file:') {
-    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://) : héberge la page (http:// ou https://) pour que tout fonctionne.', true);
-  }
-
-  let voiceOn = true;
-  const toggleBtn = document.getElementById('voice-fab');
-
-  toggleBtn.addEventListener('click', () => {
-    unlockSpeech();
-    voiceOn = !voiceOn;
-    if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
-    toggleBtn.textContent = voiceOn ? '🔊' : '🔇';
-    toggleBtn.classList.toggle('off', !voiceOn);
-    setVoiceStatus(voiceOn ? 'Lecture à voix haute activée' : 'Lecture à voix haute coupée');
-    // Petite phrase test immédiate : permet de vérifier tout de suite si le
-    // haut-parleur fonctionne, sans devoir attendre une réponse du bot.
-    if (voiceOn) speak('Voix activée.');
-  });
-
-  function speak(text, isRetry) {
-    if (!window.speechSynthesis) {
-      setVoiceStatus("❌ Ce navigateur ne sait pas lire du texte à voix haute (speechSynthesis absent).", true);
-      return;
-    }
-    if (!voiceOn || !text) return;
-    // Bug connu de Chrome : la synthèse vocale peut se retrouver "en pause"
-    // interne après une période d'inactivité ou un changement d'onglet, et
-    // speak() ne produit alors plus rien tant qu'on n'appelle pas resume().
-    window.speechSynthesis.resume();
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = currentLang;
-    if (currentVoice) utter.voice = currentVoice;
-    utter.rate = 1.02;
-    utter.pitch = 0.95;
-    let started = false;
-    utter.onstart = () => { started = true; setVoiceStatus('🔊 Shaman parle…'); };
-    utter.onend = () => { setVoiceStatus(''); };
-    utter.onerror = (e) => {
-      setVoiceStatus('❌ Erreur de lecture audio (' + (e && e.error ? e.error : 'inconnue') + ')', true);
-    };
-    window.speechSynthesis.speak(utter);
-    // Filet de sécurité : certains navigateurs mobiles abandonnent
-    // silencieusement le tout premier utterance (aucune erreur, aucun
-    // événement) — notamment si la liste des voix n'était pas encore
-    // chargée au moment de l'appel. Si rien ne s'est mis à parler après un
-    // court délai, on retente une seule fois.
-    if (!isRetry) {
-      setTimeout(() => {
-        if (!started && voiceOn && !window.speechSynthesis.speaking) {
-          speak(text, true);
-        }
-      }, 600);
-    } else {
-      // On est déjà dans la seconde tentative (isRetry=true) : si toujours
-      // rien après un délai raisonnable, la voix ne fonctionne vraiment pas
-      // sur cet appareil/navigateur (souvent : aucune voix installée dans
-      // les réglages système, ou lecture audio bloquée par le navigateur).
-      setTimeout(() => {
-        if (!started && !window.speechSynthesis.speaking) {
-          setVoiceStatus('❌ Le haut-parleur ne répond pas sur cet appareil. Vérifie qu\'une voix est installée dans les réglages du téléphone (Réglages > Accessibilité/Synthèse vocale), et que le son n\'est pas coupé.', true);
-        }
-      }, 900);
-    }
-  }
-
-  // --- Déverrouillage de la synthèse vocale ---------------------------------
-  // Les navigateurs mobiles (Chrome Android, Safari iOS) empêchent tout appel
-  // à speechSynthesis.speak() qui ne serait pas directement déclenché par un
-  // geste de l'utilisateur (tap/clic). Comme la réponse du bot arrive de
-  // façon asynchrone, le tout premier speak() était silencieusement bloqué,
-  // sans la moindre erreur en console — c'est ce qui empêchait le
-  // haut-parleur de fonctionner.
-  // Solution : à chacun des tout premiers gestes sur la page, on "amorce" la
-  // synthèse vocale avec un utterance quasi silencieux (on retente sur
-  // plusieurs gestes au cas où la toute première tentative échoue parce que
-  // la liste des voix du système n'était pas encore chargée). Une fois
-  // amorcée, le navigateur autorise la parole pour le reste de la session,
-  // même depuis des callbacks asynchrones.
-  let speechUnlocked = false;
-  let unlockAttempts = 0;
-  function unlockSpeech() {
-    if (speechUnlocked || !window.speechSynthesis || unlockAttempts >= 5) return;
-    unlockAttempts++;
-    try {
-      window.speechSynthesis.resume();
-      const primer = new SpeechSynthesisUtterance(' ');
-      primer.volume = 0;
-      primer.rate = 10;
-      primer.onstart = () => { speechUnlocked = true; };
-      primer.onend = () => { speechUnlocked = true; };
-      window.speechSynthesis.speak(primer);
-    } catch (e) {}
-  }
-  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, unlockSpeech, { passive: true });
-  });
-
-
   // --- Mode mains libres retiré : ne fonctionnait pas de façon fiable sur
   // certains téléphones. Le chatbot reste utilisable normalement en tapant
   // au clavier, avec les réponses lues à voix haute si "🔊 Voix activée"
@@ -671,7 +448,6 @@
       }
       const text = extractBotText(message);
       const bot = isBotMessage(message);
-      if (bot && text) speak(text);
     } catch (e) {
       console.error('Erreur de lecture du message entrant:', e);
     }
@@ -765,7 +541,6 @@
         (event) => {
           try {
             const text = extractBotText(event);
-            if (text) speak(text);
           } catch (e) {
             console.error('Erreur lecture message (API v0/v1):', e);
           }
@@ -1026,7 +801,6 @@
     setTimeout(() => {
       const reply = localReply(text);
       appendMessage(reply, 'bot');
-      speak(reply);
     }, 350);
   });
 

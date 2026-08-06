@@ -522,27 +522,15 @@
     voiceStatusEl.classList.add('show');
     console.log('[Shaman voix]', text);
   }
-  // Cause n°1 de "ça ne marche pas du tout, aucune erreur visible" : la page
-  // est ouverte en double-cliquant le fichier (file://) au lieu d'être servie
-  // en http(s)://. Le micro (SpeechRecognition) est alors bloqué par Chrome
-  // sans le moindre message. On le signale tout de suite, avant même que la
-  // personne touche un bouton.
-  if (location.protocol === 'file:') {
-    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://). Le micro ne fonctionnera pas ainsi : il faut héberger la page (http:// ou https://), par ex. en la mettant en ligne ou via un petit serveur local.', true);
-  }
 
   let voiceOn = true;
   const toggleBtn = document.getElementById('voice-toggle');
 
   toggleBtn.addEventListener('click', () => {
-    unlockSpeech();
     voiceOn = !voiceOn;
     if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
     toggleBtn.textContent = voiceOn ? '🔊 Voix activée' : '🔇 Voix coupée';
     toggleBtn.classList.toggle('off', !voiceOn);
-    // Petite phrase test immédiate : permet de vérifier tout de suite si le
-    // haut-parleur fonctionne, sans devoir attendre une réponse du bot.
-    if (voiceOn) speak('Voix activée.');
   });
 
   function speak(text, isRetry) {
@@ -559,47 +547,72 @@
     // interne après une période d'inactivité ou un changement d'onglet, et
     // speak() ne produit alors plus rien tant qu'on n'appelle pas resume().
     window.speechSynthesis.resume();
+    // Bug connu Chrome/Android : appeler cancel() puis speak() dans le même
+    // "tick" JS peut annuler les deux — le nouvel utterance disparaît sans
+    // le moindre événement (ni onstart, ni onerror). On sépare les deux
+    // appels par un micro-délai pour laisser le navigateur vider la file
+    // avant d'en reposer une nouvelle.
     window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = currentLang;
-    if (currentVoice) utter.voice = currentVoice;
-    utter.rate = 1.02;
-    utter.pitch = 0.95;
-    let started = false;
-    utter.onstart = () => { started = true; setVoiceStatus('🔊 Shaman parle…'); };
-    // En mode mains libres : dès que la réponse est terminée, on réécoute
-    // automatiquement — ça crée l'effet d'une conversation vocale suivie,
-    // même si ce n'est pas un appel téléphonique simultané (aucune app de
-    // ce type ne le fait sans un vrai service d'appel vocal en plus).
-    utter.onend = () => { if (handsFreeOn) startListening(); else setVoiceStatus(''); };
-    utter.onerror = (e) => {
-      setVoiceStatus('❌ Erreur de lecture audio (' + (e && e.error ? e.error : 'inconnue') + ')', true);
-      if (handsFreeOn) setTimeout(startListening, 400);
-    };
-    window.speechSynthesis.speak(utter);
-    // Filet de sécurité : certains navigateurs mobiles abandonnent
-    // silencieusement le tout premier utterance (aucune erreur, aucun
-    // événement) — notamment si la liste des voix n'était pas encore
-    // chargée au moment de l'appel. Si rien ne s'est mis à parler après un
-    // court délai, on retente une seule fois.
-    if (!isRetry) {
-      setTimeout(() => {
-        if (!started && voiceOn && !window.speechSynthesis.speaking) {
-          speak(text, true);
-        }
-      }, 600);
-    } else {
-      // On est déjà dans la seconde tentative (isRetry=true) : si toujours
-      // rien après un délai raisonnable, la voix ne fonctionne vraiment pas
-      // sur cet appareil/navigateur (souvent : aucune voix installée dans
-      // les réglages système, ou lecture audio bloquée par le navigateur).
-      setTimeout(() => {
-        if (!started && !window.speechSynthesis.speaking) {
-          setVoiceStatus('❌ Le haut-parleur ne répond pas sur cet appareil. Vérifie qu\'une voix est installée dans les réglages du téléphone (Réglages > Accessibilité/Synthèse vocale), et que le son n\'est pas coupé.', true);
-          if (handsFreeOn) setTimeout(startListening, 800);
-        }
-      }, 900);
-    }
+    setTimeout(() => {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = currentLang;
+      if (currentVoice) utter.voice = currentVoice;
+      utter.rate = 1.02;
+      utter.pitch = 0.95;
+      let started = false;
+      // Bug connu Chrome : sur une réponse longue, le moteur de synthèse
+      // s'arrête tout seul en silence après ~15s s'il n'est pas "réveillé"
+      // périodiquement. On le maintient actif tant que ça parle.
+      let keepAlive = null;
+      const stopKeepAlive = () => { if (keepAlive) { clearInterval(keepAlive); keepAlive = null; } };
+      utter.onstart = () => {
+        started = true;
+        setVoiceStatus('🔊 Shaman parle…');
+        stopKeepAlive();
+        keepAlive = setInterval(() => {
+          if (!window.speechSynthesis.speaking) { stopKeepAlive(); return; }
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }, 10000);
+      };
+      // En mode mains libres : dès que la réponse est terminée, on réécoute
+      // automatiquement — ça crée l'effet d'une conversation vocale suivie,
+      // même si ce n'est pas un appel téléphonique simultané (aucune app de
+      // ce type ne le fait sans un vrai service d'appel vocal en plus).
+      utter.onend = () => {
+        stopKeepAlive();
+        if (handsFreeOn) startListening(); else setVoiceStatus('');
+      };
+      utter.onerror = (e) => {
+        stopKeepAlive();
+        setVoiceStatus('❌ Erreur de lecture audio (' + (e && e.error ? e.error : 'inconnue') + ')', true);
+        if (handsFreeOn) setTimeout(startListening, 400);
+      };
+      window.speechSynthesis.speak(utter);
+      // Filet de sécurité : certains navigateurs mobiles abandonnent
+      // silencieusement le tout premier utterance (aucune erreur, aucun
+      // événement) — notamment si la liste des voix n'était pas encore
+      // chargée au moment de l'appel. Si rien ne s'est mis à parler après un
+      // court délai, on retente une seule fois.
+      if (!isRetry) {
+        setTimeout(() => {
+          if (!started && voiceOn && !window.speechSynthesis.speaking) {
+            speak(text, true);
+          }
+        }, 700);
+      } else {
+        // On est déjà dans la seconde tentative (isRetry=true) : si toujours
+        // rien après un délai raisonnable, la voix ne fonctionne vraiment pas
+        // sur cet appareil/navigateur (souvent : aucune voix installée dans
+        // les réglages système, ou lecture audio bloquée par le navigateur).
+        setTimeout(() => {
+          if (!started && !window.speechSynthesis.speaking) {
+            setVoiceStatus('❌ Le haut-parleur ne répond pas sur cet appareil. Vérifie qu\'une voix est installée dans les réglages du téléphone (Réglages > Accessibilité/Synthèse vocale), et que le son n\'est pas coupé.', true);
+            if (handsFreeOn) setTimeout(startListening, 800);
+          }
+        }, 1000);
+      }
+    }, 80);
   }
 
   // --- Déverrouillage de la synthèse vocale ---------------------------------
@@ -639,7 +652,6 @@
   // envoie le texte au bot, et la réponse est lue à voix haute. ---
   let handsFreeOn = false;
   let recognition = null;
-  let listenWatchdog = null;
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   const handsFreeBtn = document.getElementById('handsfree-toggle');
 
@@ -665,43 +677,25 @@
   function startListening() {
     if (!SpeechRec) { setVoiceStatus("❌ La reconnaissance vocale n'est pas disponible sur ce navigateur.", true); return; }
     if (!handsFreeOn) return;
-    clearTimeout(listenWatchdog);
     try { recognition && recognition.abort(); } catch (e) {}
     recognition = new SpeechRec();
     recognition.lang = currentLang;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onstart = () => {
-      setVoiceStatus('🎤 Je t\'écoute, parle maintenant…');
-      // Filet de sécurité : sur certains téléphones (ex. Samsung d'entrée de
-      // gamme), le service de reconnaissance de Google peut se couper en
-      // silence, sans jamais déclencher ni onresult ni onerror. Sans ça,
-      // l'appli restait bloquée sur "Je t'écoute…" indéfiniment. Si rien ne
-      // se passe en 12 secondes, on force un redémarrage.
-      clearTimeout(listenWatchdog);
-      listenWatchdog = setTimeout(() => {
-        setVoiceStatus('⏱️ Pas de réponse du micro, nouvelle tentative…');
-        try { recognition && recognition.abort(); } catch (e) {}
-      }, 12000);
-    };
+    // Sert à savoir, dans onend, si onresult/onerror a déjà pris la suite en
+    // main — sinon on risque de relancer l'écoute deux fois en parallèle.
+    let handled = false;
+    recognition.onstart = () => { setVoiceStatus('🎤 Je t\'écoute, parle maintenant…'); };
     recognition.onresult = (e) => {
-      clearTimeout(listenWatchdog);
+      handled = true;
       const transcript = e.results[0][0].transcript;
       if (!transcript) return;
       setVoiceStatus('📨 Message reçu : "' + transcript + '" — envoi à Shaman…');
       window.botpress && window.botpress.open && window.botpress.open();
       sendToBot(transcript);
     };
-    recognition.onend = () => {
-      // Se déclenche que la reconnaissance se soit arrêtée normalement
-      // (résultat/erreur déjà traités ci-dessus) OU en silence, sans aucun
-      // résultat ni erreur. Dans ce dernier cas, c'est ce qui laissait
-      // l'appli bloquée sur "Je t'écoute…" pour toujours : on relance.
-      clearTimeout(listenWatchdog);
-      if (handsFreeOn) setTimeout(startListening, 400);
-    };
     recognition.onerror = (e) => {
-      clearTimeout(listenWatchdog);
+      handled = true;
       const code = e && e.error;
       if (code && ['not-allowed', 'service-not-allowed'].includes(code)) {
         setVoiceStatus("❌ Micro bloqué pour ce site. Sur Chrome : appuie sur le ⋮ (ou l'icône ⓘ/🔒 dans la barre d'adresse) > Infos sur le site > Autorisations > Microphone > Autoriser, puis réessaie.", true);
@@ -716,9 +710,8 @@
       // en silence.
       if (handsFreeOn) {
         if (code === 'no-speech') {
-          // Pas grave : rien entendu pendant le silence habituel avant coupure.
-          // onend (juste après) relancera automatiquement l'écoute.
           setVoiceStatus('🔇 Rien entendu, nouvelle écoute…');
+          setTimeout(startListening, 1000);
         } else {
           setVoiceStatus('❌ Erreur du microphone (' + (code || 'inconnue') + '). Mode mains libres arrêté.', true);
           handsFreeOn = false;
@@ -726,6 +719,14 @@
           handsFreeBtn.classList.add('off');
         }
       }
+    };
+    // Filet de sécurité : sur certains navigateurs/versions Android, la
+    // reconnaissance se termine parfois en silence après un blanc — sans
+    // déclencher onresult ni onerror. Sans ce handler, le mode mains libres
+    // s'arrêtait alors tout seul sans le moindre message d'erreur. On
+    // relance automatiquement tant que le mode reste actif.
+    recognition.onend = () => {
+      if (handsFreeOn && !handled) setTimeout(startListening, 300);
     };
     try {
       recognition.start();
@@ -743,15 +744,37 @@
       alert("La reconnaissance vocale n'est pas prise en charge par ce navigateur. Utilise Chrome sur Android ou sur ordinateur.");
       return;
     }
-    handsFreeOn = !handsFreeOn;
-    handsFreeBtn.textContent = handsFreeOn ? '🎧 Mains libres · parle maintenant' : '🎧 Mode mains libres';
-    handsFreeBtn.classList.toggle('off', !handsFreeOn);
     if (handsFreeOn) {
+      handsFreeOn = false;
+      handsFreeBtn.textContent = '🎧 Mode mains libres';
+      handsFreeBtn.classList.add('off');
+      if (recognition) { try { recognition.abort(); } catch (e) {} }
+      setVoiceStatus('');
+      return;
+    }
+    // On demande la permission micro explicitement avant de démarrer la
+    // reconnaissance : certains navigateurs mobiles échouent en silence
+    // (aucun événement onerror) si on laisse SpeechRecognition gérer seul
+    // la demande de permission, ce qui donnait l'impression que le mode
+    // mains libres "ne faisait rien" en cas de micro refusé/indisponible.
+    const activate = () => {
+      handsFreeOn = true;
+      handsFreeBtn.textContent = '🎧 Mains libres · parle maintenant';
+      handsFreeBtn.classList.remove('off');
       window.botpress && window.botpress.open && window.botpress.open();
       startListening();
-    } else if (recognition) {
-      try { recognition.abort(); } catch (e) {}
-      setVoiceStatus('');
+    };
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          stream.getTracks().forEach((t) => t.stop());
+          activate();
+        })
+        .catch((err) => {
+          setVoiceStatus("❌ Micro refusé ou indisponible (" + (err && err.name ? err.name : 'erreur') + "). Autorise le micro pour ce site dans les réglages du navigateur, puis réessaie.", true);
+        });
+    } else {
+      activate();
     }
   });
 

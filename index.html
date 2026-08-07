@@ -398,10 +398,10 @@
   }
 </script>
 
+<script>
   // --- Mode mains libres retiré : ne fonctionnait pas de façon fiable sur
   // certains téléphones. Le chatbot reste utilisable normalement en tapant
-  // au clavier, avec les réponses lues à voix haute si "🔊 Voix activée"
-  // est allumé.
+  // au clavier.
 
   function extractBotText(message) {
     return (
@@ -627,10 +627,21 @@
   const currentUrl = window.location.href.split('?')[0].split('#')[0];
   const qrImg = document.getElementById('qr-code');
   function loadQrCode() {
-    if (navigator.onLine) {
-      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(currentUrl);
-    }
+    // On tente toujours de charger l'image, sans se fier à navigator.onLine
+    // (peu fiable sur mobile juste après le chargement de la page) : le
+    // navigateur gère très bien tout seul le cas où ça échoue vraiment
+    // (l'image reste juste cassée, sans bloquer le reste de la page).
+    qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(currentUrl);
   }
+  qrImg.onerror = () => {
+    // Si le service externe échoue (bloqué par le réseau/un bloqueur de
+    // pub...), on retente une fois après un court délai plutôt que de
+    // laisser une icône d'image cassée en permanence.
+    if (!qrImg.dataset.retried) {
+      qrImg.dataset.retried = '1';
+      setTimeout(loadQrCode, 2000);
+    }
+  };
   loadQrCode();
   document.getElementById('share-link').textContent = currentUrl;
 

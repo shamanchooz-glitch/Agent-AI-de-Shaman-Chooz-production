@@ -506,12 +506,15 @@
   let speechUnlocked = false;
   let unlockAttempts = 0;
   function unlockSpeech() {
-    if (speechUnlocked || !window.speechSynthesis || unlockAttempts >= 5) return;
+    if (speechUnlocked || !window.speechSynthesis || unlockAttempts >= 8) return;
     unlockAttempts++;
     try {
       window.speechSynthesis.resume();
-      const primer = new SpeechSynthesisUtterance(' ');
-      primer.volume = 0;
+      // Un texte vide/silencieux (volume 0) est parfois ignoré sans
+      // déclencher onstart/onend sur certains navigateurs Android — d'où un
+      // volume très faible mais non nul, et un vrai mot au lieu d'un espace.
+      const primer = new SpeechSynthesisUtterance('bonjour');
+      primer.volume = 0.01;
       primer.rate = 10;
       primer.onstart = () => { speechUnlocked = true; };
       primer.onend = () => { speechUnlocked = true; };
@@ -519,7 +522,7 @@
     } catch (e) {}
   }
   ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, unlockSpeech, { passive: true });
+    document.addEventListener(evt, unlockSpeech, { capture: true, passive: true });
   });
 </script>
 
@@ -732,6 +735,11 @@
   // Bouton de secours pour ouvrir le chat manuellement, au cas où la bulle
   // native de Botpress ne s'affiche pas ou passe inaperçue.
   document.getElementById('open-chat').addEventListener('click', () => {
+    // Tap direct dans NOTRE page (pas dans la fenêtre de chat Botpress,
+    // qui est un cadre technique séparé où notre code ne peut pas détecter
+    // les clics) : c'est le seul moment fiable pour "débloquer" la voix
+    // auprès du navigateur avant que Shaman ne parle tout seul plus tard.
+    unlockSpeech();
     if (!navigator.onLine) {
       openOfflinePanel();
       return;

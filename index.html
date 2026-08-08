@@ -399,6 +399,131 @@
 </script>
 
 <script>
+  // --- Lecture à voix haute des réponses (sans micro, sans mode mains
+  // libres — juste le haut-parleur). La langue de la voix est détectée
+  // automatiquement depuis la langue du téléphone. ---
+  const WORLD_LANGS = [
+    { code: 'fr-FR', label: 'Français' },
+    { code: 'en-US', label: 'English (US)' },
+    { code: 'en-GB', label: 'English (UK)' },
+    { code: 'es-ES', label: 'Español' },
+    { code: 'pt-PT', label: 'Português' },
+    { code: 'pt-BR', label: 'Português (Brésil)' },
+    { code: 'de-DE', label: 'Deutsch' },
+    { code: 'it-IT', label: 'Italiano' },
+    { code: 'ar-SA', label: 'العربية' },
+    { code: 'zh-CN', label: '中文（简体）' },
+    { code: 'ja-JP', label: '日本語' },
+    { code: 'ru-RU', label: 'Русский' },
+    { code: 'hi-IN', label: 'हिन्दी' },
+    { code: 'tr-TR', label: 'Türkçe' },
+    { code: 'sw-KE', label: 'Kiswahili' },
+    { code: 'nl-NL', label: 'Nederlands' },
+    { code: 'ko-KR', label: '한국어' },
+  ];
+
+  function detectLang() {
+    const nav = (navigator.language || 'fr-FR');
+    const exact = WORLD_LANGS.find(l => l.code.toLowerCase() === nav.toLowerCase());
+    if (exact) return exact.code;
+    const base = nav.split('-')[0];
+    const partial = WORLD_LANGS.find(l => l.code.split('-')[0] === base);
+    return partial ? partial.code : 'fr-FR';
+  }
+
+  let currentLang = detectLang();
+  let currentVoice = null;
+
+  function pickVoice() {
+    if (!window.speechSynthesis) return;
+    const all = window.speechSynthesis.getVoices();
+    const base = currentLang.split('-')[0];
+    const matches = all.filter(v => v.lang && v.lang.toLowerCase().startsWith(base));
+    currentVoice = matches[0] || all[0] || null;
+  }
+  if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
+  pickVoice();
+
+  // Diagnostic silencieux : rien à l'écran, juste la console (F12 sur
+  // ordinateur, ou chrome://inspect depuis un PC relié en USB pour un
+  // téléphone Android) en cas de besoin de débogage.
+  function setVoiceStatus(text, isError) {
+    if (!text) return;
+    console.log('[Shaman voix]', text);
+  }
+  if (location.protocol === 'file:') {
+    setVoiceStatus('⚠️ Ce fichier est ouvert en local (file://) : héberge la page (http:// ou https://) pour que tout fonctionne.', true);
+  }
+
+  // Toujours activée, sans bouton ni interrupteur visible : chaque réponse
+  // de Shaman est lue automatiquement à voix haute dès qu'elle arrive.
+  const voiceOn = true;
+
+  function speak(text, isRetry) {
+    if (!window.speechSynthesis) {
+      setVoiceStatus("❌ Ce navigateur ne sait pas lire du texte à voix haute.", true);
+      return;
+    }
+    if (!voiceOn || !text) return;
+    // Bug connu de Chrome : la synthèse vocale peut se retrouver "en pause"
+    // interne après une période d'inactivité, et speak() ne produit alors
+    // plus rien tant qu'on n'appelle pas resume().
+    window.speechSynthesis.resume();
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = currentLang;
+    if (currentVoice) utter.voice = currentVoice;
+    utter.rate = 1.02;
+    utter.pitch = 0.95;
+    let started = false;
+    utter.onstart = () => { started = true; setVoiceStatus('🔊 Shaman parle…'); };
+    utter.onend = () => { setVoiceStatus(''); };
+    utter.onerror = (e) => {
+      setVoiceStatus('❌ Erreur de lecture audio (' + (e && e.error ? e.error : 'inconnue') + ')', true);
+    };
+    window.speechSynthesis.speak(utter);
+    // Filet de sécurité : certains navigateurs mobiles abandonnent
+    // silencieusement le tout premier utterance. Si rien ne s'est mis à
+    // parler après un court délai, on retente une seule fois.
+    if (!isRetry) {
+      setTimeout(() => {
+        if (!started && voiceOn && !window.speechSynthesis.speaking) speak(text, true);
+      }, 600);
+    } else {
+      setTimeout(() => {
+        if (!started && !window.speechSynthesis.speaking) {
+          setVoiceStatus('❌ Le haut-parleur ne répond pas sur cet appareil. Vérifie qu\'une voix est installée (Réglages > Accessibilité/Synthèse vocale) et que le son n\'est pas coupé.', true);
+        }
+      }, 900);
+    }
+  }
+
+  // --- Déverrouillage de la synthèse vocale ---------------------------------
+  // Les navigateurs mobiles empêchent tout appel à speechSynthesis.speak()
+  // qui ne serait pas directement déclenché par un geste utilisateur. Comme
+  // la réponse du bot arrive de façon asynchrone, le tout premier speak()
+  // serait silencieusement bloqué sans amorçage préalable.
+  let speechUnlocked = false;
+  let unlockAttempts = 0;
+  function unlockSpeech() {
+    if (speechUnlocked || !window.speechSynthesis || unlockAttempts >= 5) return;
+    unlockAttempts++;
+    try {
+      window.speechSynthesis.resume();
+      const primer = new SpeechSynthesisUtterance(' ');
+      primer.volume = 0;
+      primer.rate = 10;
+      primer.onstart = () => { speechUnlocked = true; };
+      primer.onend = () => { speechUnlocked = true; };
+      window.speechSynthesis.speak(primer);
+    } catch (e) {}
+  }
+  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, unlockSpeech, { passive: true });
+  });
+</script>
+
+<script>
   // --- Mode mains libres retiré : ne fonctionnait pas de façon fiable sur
   // certains téléphones. Le chatbot reste utilisable normalement en tapant
   // au clavier.
@@ -448,6 +573,7 @@
       }
       const text = extractBotText(message);
       const bot = isBotMessage(message);
+      if (bot && text) speak(text);
     } catch (e) {
       console.error('Erreur de lecture du message entrant:', e);
     }
@@ -541,6 +667,7 @@
         (event) => {
           try {
             const text = extractBotText(event);
+            if (text) speak(text);
           } catch (e) {
             console.error('Erreur lecture message (API v0/v1):', e);
           }
@@ -812,6 +939,7 @@
     setTimeout(() => {
       const reply = localReply(text);
       appendMessage(reply, 'bot');
+      speak(reply);
     }, 350);
   });
 
